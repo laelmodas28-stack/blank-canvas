@@ -3,9 +3,12 @@ import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 type Platform = "mercadolivre" | "shopee";
+type DocType = "cnpj" | "cpf";
+type VendorType = "normal" | "indicado";
 
-interface ShopeeResult {
+interface ScenarioResult {
   label: string;
+  subtitle: string;
   commissionRate: number;
   fixedFee: number;
   commission: number;
@@ -18,24 +21,42 @@ interface ShopeeResult {
   description: string;
 }
 
-function getShopeeNormalFees(salePrice: number): { commissionRate: number; fixedFee: number } {
-  if (salePrice < 8) return { commissionRate: 0.50, fixedFee: 0 };
-  if (salePrice < 80) return { commissionRate: 0.20, fixedFee: 0 };
-  if (salePrice < 100) return { commissionRate: 0.14, fixedFee: 16 };
-  if (salePrice < 200) return { commissionRate: 0.14, fixedFee: 20 };
+// CNPJ fees (as specified by user - Shopee 2026)
+function getShopeeCnpjNormalFees(price: number) {
+  if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (price < 80) return { commissionRate: 0.20, fixedFee: 0 };
+  if (price < 100) return { commissionRate: 0.14, fixedFee: 16 };
+  if (price < 200) return { commissionRate: 0.14, fixedFee: 20 };
   return { commissionRate: 0.14, fixedFee: 26 };
 }
 
-function getShopeeIndicadoFees(salePrice: number): { commissionRate: number; fixedFee: number } {
-  // Indicado + Frete Grátis has slightly higher commission
-  if (salePrice < 8) return { commissionRate: 0.50, fixedFee: 0 };
-  if (salePrice < 80) return { commissionRate: 0.24, fixedFee: 0 };
-  if (salePrice < 100) return { commissionRate: 0.18, fixedFee: 16 };
-  if (salePrice < 200) return { commissionRate: 0.18, fixedFee: 20 };
-  return { commissionRate: 0.18, fixedFee: 26 };
+function getShopeeCnpjIndicadoFees(price: number) {
+  // Indicado + Frete Grátis: +2% comissão, taxa fixa diferente
+  if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (price < 80) return { commissionRate: 0.22, fixedFee: 4 };
+  if (price < 100) return { commissionRate: 0.16, fixedFee: 16 };
+  if (price < 200) return { commissionRate: 0.16, fixedFee: 20 };
+  return { commissionRate: 0.16, fixedFee: 26 };
 }
 
-function getMercadoLivreFees(adType: "classico" | "premium"): { commissionRate: number; fixedFee: number; description: string } {
+// CPF fees (different fixed fees)
+function getShopeeCpfNormalFees(price: number) {
+  if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (price < 80) return { commissionRate: 0.20, fixedFee: 10 };
+  if (price < 100) return { commissionRate: 0.14, fixedFee: 16 };
+  if (price < 200) return { commissionRate: 0.14, fixedFee: 20 };
+  return { commissionRate: 0.14, fixedFee: 26 };
+}
+
+function getShopeeCpfIndicadoFees(price: number) {
+  if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (price < 80) return { commissionRate: 0.22, fixedFee: 4 };
+  if (price < 100) return { commissionRate: 0.16, fixedFee: 16 };
+  if (price < 200) return { commissionRate: 0.16, fixedFee: 20 };
+  return { commissionRate: 0.16, fixedFee: 26 };
+}
+
+function getMercadoLivreFees(adType: "classico" | "premium") {
   if (adType === "classico") {
     return { commissionRate: 0.12, fixedFee: 6.50, description: "Anúncio Clássico: 10-14%. Parcelamento com juros para comprador. Custo operacional R$ 6,50." };
   }
@@ -43,39 +64,53 @@ function getMercadoLivreFees(adType: "classico" | "premium"): { commissionRate: 
 }
 
 function calcScenario(
-  salePrice: number,
-  costProduct: number,
-  taxRate: number,
-  frete: number,
-  embalagem: number,
-  outrosCustos: number,
-  ads: number,
-  commissionRate: number,
-  fixedFee: number,
-  label: string,
-  description: string
-): ShopeeResult {
+  salePrice: number, costProduct: number, taxRate: number,
+  frete: number, embalagem: number, outrosCustos: number, ads: number,
+  commissionRate: number, fixedFee: number,
+  label: string, subtitle: string, description: string
+): ScenarioResult {
   const commission = salePrice * commissionRate;
   const taxAmount = salePrice * (taxRate / 100);
   const totalCosts = costProduct + commission + fixedFee + taxAmount + frete + embalagem + outrosCustos + ads;
   const netProfit = salePrice - totalCosts;
   const margin = salePrice > 0 ? (netProfit / salePrice) * 100 : 0;
   const roi = costProduct > 0 ? (netProfit / costProduct) * 100 : 0;
-
-  // Break-even: price where profit = 0
   const fixedCosts = costProduct + frete + embalagem + outrosCustos + ads + fixedFee;
   const denominator = 1 - commissionRate - taxRate / 100;
   const breakEven = denominator > 0 ? fixedCosts / denominator : 0;
-
-  return { label, commissionRate, fixedFee, commission, taxAmount, totalCosts, netProfit, margin, roi, breakEven, description };
+  return { label, subtitle, commissionRate, fixedFee, commission, taxAmount, totalCosts, netProfit, margin, roi, breakEven, description };
 }
 
 const COLORS = ["hsl(220, 70%, 55%)", "hsl(0, 70%, 55%)", "hsl(200, 70%, 45%)", "hsl(45, 80%, 50%)"];
 
+function ToggleGroup({ label, options, value, onChange }: { label: string; options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</h3>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+        {options.map(o => (
+          <button
+            key={o.value}
+            onClick={() => onChange(o.value)}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${value === o.value ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Precificacao() {
-  const [platform, setPlatform] = useState<Platform>("mercadolivre");
+  const [platform, setPlatform] = useState<Platform>("shopee");
+  const [docType, setDocType] = useState<DocType>("cnpj");
+  const [vendorType, setVendorType] = useState<VendorType>("normal");
+  const [freteGratis, setFreteGratis] = useState("sim");
+  const [shopeeAcelera, setShopeeAcelera] = useState("nao");
   const [adType, setAdType] = useState<"classico" | "premium">("classico");
   const [mercadoFull, setMercadoFull] = useState(false);
+
   const [costPrice, setCostPrice] = useState("18");
   const [salePrice, setSalePrice] = useState("49.90");
   const [taxRate, setTaxRate] = useState("7");
@@ -92,31 +127,34 @@ export default function Precificacao() {
   const embalagemVal = parseFloat(embalagem) || 0;
   const outrosVal = parseFloat(outrosCustos) || 0;
   const adsVal = parseFloat(ads) || 0;
-  const marginTarget = parseFloat(targetMargin) || 0;
+
+  const getShopeeNormalFees = docType === "cnpj" ? getShopeeCnpjNormalFees : getShopeeCpfNormalFees;
+  const getShopeeIndicadoFees = docType === "cnpj" ? getShopeeCnpjIndicadoFees : getShopeeCpfIndicadoFees;
 
   const scenarios = useMemo(() => {
     if (platform === "shopee") {
       const normal = getShopeeNormalFees(sale);
       const indicado = getShopeeIndicadoFees(sale);
+      const normalDesc = `Vendedor Normal: comissão ${(normal.commissionRate * 100).toFixed(0)}% + taxa fixa R$ ${normal.fixedFee.toFixed(2)}.\nComissão NÃO incide sobre valor do frete.`;
+      const indicadoDesc = `Vendedor Indicado + Frete Grátis: comissão ${(indicado.commissionRate * 100).toFixed(0)}% (${(normal.commissionRate * 100).toFixed(0)}% + 2% programa) + taxa fixa R$ ${indicado.fixedFee.toFixed(2)}.`;
       return [
-        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, normal.commissionRate, normal.fixedFee, "Shopee Normal", `Comissão ${(normal.commissionRate * 100).toFixed(0)}%. Taxa fixa R$ ${normal.fixedFee.toFixed(2)}.`),
-        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, indicado.commissionRate, indicado.fixedFee, "Shopee Indicado + Frete Grátis", `Comissão ${(indicado.commissionRate * 100).toFixed(0)}%. Taxa fixa R$ ${indicado.fixedFee.toFixed(2)}. Inclui frete grátis.`),
+        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, normal.commissionRate, normal.fixedFee, "Shopee", "Normal (sem Frete Grátis)", normalDesc),
+        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, indicado.commissionRate, indicado.fixedFee, "Shopee", "Indicado + Frete Grátis", indicadoDesc),
       ];
     } else {
       const classico = getMercadoLivreFees("classico");
       const premium = getMercadoLivreFees("premium");
       return [
-        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, classico.commissionRate, classico.fixedFee, "Mercado Livre\nClássico", classico.description),
-        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, premium.commissionRate, premium.fixedFee, "Mercado Livre\nPremium", premium.description),
+        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, classico.commissionRate, classico.fixedFee, "Mercado Livre", "Clássico", classico.description),
+        calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal, premium.commissionRate, premium.fixedFee, "Mercado Livre", "Premium", premium.description),
       ];
     }
-  }, [platform, sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal]);
+  }, [platform, docType, sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal]);
 
   const bestIdx = scenarios[0].netProfit >= scenarios[1].netProfit ? 0 : 1;
   const best = scenarios[bestIdx];
   const hasInput = cost > 0 && sale > 0;
 
-  // Smart price suggestions
   const suggestPrices = useMemo(() => {
     const fees = platform === "shopee" ? getShopeeNormalFees(sale) : getMercadoLivreFees("classico");
     const fixedCosts = cost + freteVal + embalagemVal + outrosVal + adsVal + fees.fixedFee;
@@ -128,11 +166,8 @@ export default function Precificacao() {
       recommended: denom25 > 0 ? fixedCosts / denom25 : 0,
       high: denom40 > 0 ? fixedCosts / denom40 : 0,
     };
-  }, [platform, sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal]);
+  }, [platform, docType, sale, cost, tax, freteVal, embalagemVal, outrosVal, adsVal]);
 
-  const suggestProfit = (price: number, marginPct: number) => price * marginPct;
-
-  // Chart data
   const pieData = hasInput ? [
     { name: "Produto", value: cost },
     { name: "Comissão", value: best.commission },
@@ -141,24 +176,18 @@ export default function Precificacao() {
   ].filter(d => d.value > 0) : [];
 
   const barData = hasInput ? scenarios.map(s => ({
-    name: s.label.replace("\n", " "),
+    name: `${s.label} ${s.subtitle}`,
     Lucro: parseFloat(s.netProfit.toFixed(2)),
     Custos: parseFloat(s.totalCosts.toFixed(2)),
   })) : [];
 
-  // Analysis text
   const analysisTexts = useMemo(() => {
     if (!hasInput) return [];
     const texts: string[] = [];
-    const b = scenarios[bestIdx];
-    texts.push(`O plano ${b.label.replace("\n", " ")} oferece o melhor lucro de R$ ${b.netProfit.toFixed(2)} com margem de ${b.margin.toFixed(2)}%.`);
-    if (scenarios.every(s => s.margin > 10)) {
-      texts.push("Margem saudável em todos os planos. Precificação adequada para operação lucrativa.");
-    } else if (scenarios.some(s => s.margin < 0)) {
-      texts.push("Atenção: pelo menos um cenário resulta em prejuízo. Revise os custos ou aumente o preço.");
-    } else {
-      texts.push("Margem baixa em algum cenário. Considere otimizar custos.");
-    }
+    texts.push(`O plano ${best.label} ${best.subtitle} oferece o melhor lucro de R$ ${best.netProfit.toFixed(2)} com margem de ${best.margin.toFixed(2)}%.`);
+    if (scenarios.every(s => s.margin > 10)) texts.push("Margem saudável em todos os planos. Precificação adequada para operação lucrativa.");
+    else if (scenarios.some(s => s.margin < 0)) texts.push("Atenção: pelo menos um cenário resulta em prejuízo. Revise os custos ou aumente o preço.");
+    else texts.push("Margem baixa em algum cenário. Considere otimizar custos.");
     return texts;
   }, [hasInput, scenarios, bestIdx]);
 
@@ -166,7 +195,6 @@ export default function Precificacao() {
 
   return (
     <div className="max-w-[1400px] mx-auto">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-8">
         <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center">
           <Calculator className="h-5 w-5 text-primary" />
@@ -178,50 +206,46 @@ export default function Precificacao() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* LEFT COLUMN - Inputs */}
+        {/* LEFT COLUMN */}
         <div className="xl:col-span-4 space-y-5">
-          {/* Platform */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Plataforma</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {(["mercadolivre", "shopee"] as Platform[]).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPlatform(p)}
-                  className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${platform === p ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
-                >
-                  {p === "mercadolivre" ? "Mercado Livre" : "Shopee"}
-                </button>
-              ))}
-            </div>
+          {/* Platform & Options */}
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            <ToggleGroup label="Plataforma" value={platform} onChange={v => setPlatform(v as Platform)} options={[
+              { value: "mercadolivre", label: "Mercado Livre" },
+              { value: "shopee", label: "Shopee" },
+            ]} />
+
+            {platform === "shopee" && (
+              <>
+                <ToggleGroup label="Documento" value={docType} onChange={v => setDocType(v as DocType)} options={[
+                  { value: "cnpj", label: "CNPJ" },
+                  { value: "cpf", label: "CPF" },
+                ]} />
+                <ToggleGroup label="Tipo de Vendedor" value={vendorType} onChange={v => setVendorType(v as VendorType)} options={[
+                  { value: "normal", label: "Normal" },
+                  { value: "indicado", label: "Indicado" },
+                ]} />
+                <ToggleGroup label="Frete Grátis" value={freteGratis} onChange={setFreteGratis} options={[
+                  { value: "sim", label: "Sim" },
+                  { value: "nao", label: "Não" },
+                ]} />
+                <ToggleGroup label="Shopee Acelera" value={shopeeAcelera} onChange={setShopeeAcelera} options={[
+                  { value: "sim", label: "Sim" },
+                  { value: "nao", label: "Não" },
+                ]} />
+              </>
+            )}
 
             {platform === "mercadolivre" && (
               <>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-4 mb-2">Tipo de Anúncio</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["classico", "premium"] as const).map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setAdType(t)}
-                      className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${adType === t ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
-                    >
-                      {t === "classico" ? "Clássico" : "Premium"}
-                    </button>
-                  ))}
-                </div>
-
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-4 mb-2">Mercado Envios Full</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {[true, false].map(v => (
-                    <button
-                      key={String(v)}
-                      onClick={() => setMercadoFull(v)}
-                      className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${mercadoFull === v ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
-                    >
-                      {v ? "Sim" : "Não"}
-                    </button>
-                  ))}
-                </div>
+                <ToggleGroup label="Tipo de Anúncio" value={adType} onChange={v => setAdType(v as "classico" | "premium")} options={[
+                  { value: "classico", label: "Clássico" },
+                  { value: "premium", label: "Premium" },
+                ]} />
+                <ToggleGroup label="Mercado Envios Full" value={mercadoFull ? "sim" : "nao"} onChange={v => setMercadoFull(v === "sim")} options={[
+                  { value: "sim", label: "Sim" },
+                  { value: "nao", label: "Não" },
+                ]} />
               </>
             )}
           </div>
@@ -229,64 +253,50 @@ export default function Precificacao() {
           {/* Product Costs */}
           <div className="bg-card border border-border rounded-xl p-5 space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Custos do Produto</h3>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Custo do Produto (R$)</label>
-              <input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} placeholder="0,00" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
-              <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Alíquota de Impostos (%)</label>
-              <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="0" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Margem Desejada (%)</label>
-              <input type="number" value={targetMargin} onChange={e => setTargetMargin(e.target.value)} placeholder="25" className={inputClass} />
-            </div>
+            {[
+              { label: "Custo do Produto (R$)", value: costPrice, setter: setCostPrice, icon: "💲" },
+              { label: "Preço de Venda (R$)", value: salePrice, setter: setSalePrice, icon: "$" },
+              { label: "Alíquota de Impostos (%)", value: taxRate, setter: setTaxRate, icon: "%" },
+              { label: "Margem Desejada (%)", value: targetMargin, setter: setTargetMargin, icon: "◎" },
+            ].map(f => (
+              <div key={f.label}>
+                <label className="text-sm text-muted-foreground block mb-1">{f.label}</label>
+                <input type="number" value={f.value} onChange={e => f.setter(e.target.value)} placeholder="0" className={inputClass} />
+              </div>
+            ))}
           </div>
 
           {/* Additional Costs */}
           <div className="bg-card border border-border rounded-xl p-5 space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Custos Adicionais</h3>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Frete (R$)</label>
-              <input type="number" value={frete} onChange={e => setFrete(e.target.value)} placeholder="0" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Embalagem (R$)</label>
-              <input type="number" value={embalagem} onChange={e => setEmbalagem(e.target.value)} placeholder="0" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Outros Custos (R$)</label>
-              <input type="number" value={outrosCustos} onChange={e => setOutrosCustos(e.target.value)} placeholder="0" className={inputClass} />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">Investimento em Ads (R$)</label>
-              <input type="number" value={ads} onChange={e => setAds(e.target.value)} placeholder="0,00" className={inputClass} />
-            </div>
+            {[
+              { label: "Frete (R$)", value: frete, setter: setFrete },
+              { label: "Embalagem (R$)", value: embalagem, setter: setEmbalagem },
+              { label: "Outros Custos (R$)", value: outrosCustos, setter: setOutrosCustos },
+              { label: "Investimento em Ads (R$)", value: ads, setter: setAds },
+            ].map(f => (
+              <div key={f.label}>
+                <label className="text-sm text-muted-foreground block mb-1">{f.label}</label>
+                <input type="number" value={f.value} onChange={e => f.setter(e.target.value)} placeholder="0" className={inputClass} />
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* RIGHT COLUMN - Results */}
+        {/* RIGHT COLUMN */}
         <div className="xl:col-span-8 space-y-5">
           {hasInput && (
             <>
-              {/* Top Summary Cards */}
+              {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-card border border-border rounded-xl p-4">
                   <p className="text-xs text-muted-foreground">Lucro Líquido</p>
-                  <p className={`text-xl font-bold mt-1 ${best.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>
-                    R$ {best.netProfit.toFixed(2)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{best.label.replace("\n", " ")}</p>
+                  <p className={`text-xl font-bold mt-1 ${best.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {best.netProfit.toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{best.subtitle}</p>
                 </div>
                 <div className="bg-card border border-border rounded-xl p-4">
                   <p className="text-xs text-muted-foreground">Margem de Lucro</p>
-                  <p className={`text-xl font-bold mt-1 ${best.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>
-                    {best.margin.toFixed(2)}%
-                  </p>
+                  <p className={`text-xl font-bold mt-1 ${best.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>{best.margin.toFixed(2)}%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Sobre o preço de venda</p>
                 </div>
                 <div className="bg-card border border-border rounded-xl p-4">
@@ -312,21 +322,20 @@ export default function Precificacao() {
                           Melhor Opção
                         </span>
                       )}
-                      <h4 className="font-bold text-foreground text-lg whitespace-pre-line">{s.label}</h4>
+                      <h4 className="font-bold text-foreground text-lg">{s.label}</h4>
+                      <p className="text-sm text-muted-foreground">{s.subtitle}</p>
 
                       <div className="mt-4 space-y-2 text-sm">
                         <div className="flex justify-between"><span className="text-muted-foreground">Preço de Venda</span><span className="font-medium text-foreground">R$ {sale.toFixed(2)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Custo do Produto</span><span className="text-foreground">- R$ {cost.toFixed(2)}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">Comissão ({(s.commissionRate * 100).toFixed(0)}%)</span><span className="text-foreground">- R$ {s.commission.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Comissão ({(s.commissionRate * 100).toFixed(2)}%)</span><span className="text-foreground">- R$ {s.commission.toFixed(2)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Taxa Fixa</span><span className="text-foreground">- R$ {s.fixedFee.toFixed(2)}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">Impostos ({tax.toFixed(0)}%)</span><span className="text-foreground">- R$ {s.taxAmount.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Impostos ({tax.toFixed(2)}%)</span><span className="text-foreground">- R$ {s.taxAmount.toFixed(2)}</span></div>
                       </div>
 
                       <div className="border-t border-border mt-3 pt-3 flex justify-between items-center">
                         <span className="font-semibold text-foreground">Lucro Líquido</span>
-                        <span className={`text-xl font-bold ${s.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>
-                          R$ {s.netProfit.toFixed(2)}
-                        </span>
+                        <span className={`text-xl font-bold ${s.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {s.netProfit.toFixed(2)}</span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 mt-3">
@@ -345,7 +354,7 @@ export default function Precificacao() {
                         <span className="font-semibold text-foreground">R$ {s.breakEven.toFixed(2)}</span>
                       </div>
 
-                      <p className="text-xs text-muted-foreground mt-3">{s.description}</p>
+                      <p className="text-xs text-muted-foreground mt-3 whitespace-pre-line">{s.description}</p>
                     </div>
                   ))}
                 </div>
@@ -370,7 +379,7 @@ export default function Precificacao() {
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={barData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${v}`} />
                       <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2)}`} />
                       <Bar dataKey="Lucro" fill="hsl(150, 60%, 40%)" radius={[4, 4, 0, 0]} />
@@ -390,12 +399,12 @@ export default function Precificacao() {
                   <div className="bg-muted/20 border border-border rounded-xl p-4">
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">Preço Mínimo Lucrativo</p>
                     <p className="text-2xl font-bold text-foreground mt-1">R$ {suggestPrices.min.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Margem: 5,00%&nbsp;&nbsp;Lucro: R$ {suggestProfit(suggestPrices.min, 0.05).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Margem: 5,00% | Lucro: R$ {(suggestPrices.min * 0.05).toFixed(2)}</p>
                   </div>
                   <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 relative">
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">Preço Recomendado</p>
                     <p className="text-2xl font-bold text-primary mt-1">R$ {suggestPrices.recommended.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Margem: 25,00%&nbsp;&nbsp;Lucro: R$ {suggestProfit(suggestPrices.recommended, 0.25).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Margem: 25,00% | Lucro: R$ {(suggestPrices.recommended * 0.25).toFixed(2)}</p>
                     <div className="flex items-center gap-1 mt-2">
                       <CheckCircle2 className="h-3 w-3 text-primary" />
                       <span className="text-xs text-primary font-medium">Recomendado</span>
@@ -404,7 +413,7 @@ export default function Precificacao() {
                   <div className="bg-muted/20 border border-border rounded-xl p-4">
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">Preço de Alta Margem</p>
                     <p className="text-2xl font-bold text-foreground mt-1">R$ {suggestPrices.high.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Margem: 40,00%&nbsp;&nbsp;Lucro: R$ {suggestProfit(suggestPrices.high, 0.40).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Margem: 40,00% | Lucro: R$ {(suggestPrices.high * 0.40).toFixed(2)}</p>
                   </div>
                 </div>
               </div>
