@@ -4,12 +4,27 @@ const corsHeaders = {
 };
 
 const SHOPEE_BASE = 'https://shopee.com.br';
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-  'Referer': 'https://shopee.com.br/',
-};
+
+function getHeaders(refererPath = '/') {
+  return {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': `${SHOPEE_BASE}${refererPath}`,
+    'Origin': SHOPEE_BASE,
+    'Connection': 'keep-alive',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'X-Requested-With': 'XMLHttpRequest',
+    'X-Shopee-Language': 'pt-BR',
+    'Cookie': 'SPC_F=; SPC_EC=-; SPC_U=-;',
+  };
+}
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -25,16 +40,9 @@ function calculateOpportunityScore(
   avgRating: number,
   priceVsAvg: number
 ): number {
-  // Demand score (40%) - higher sales = higher score
   const demandScore = Math.min(avgSales / 50, 100);
-
-  // Competition score (30%) - fewer competitors = higher score
   const competitionScore = Math.max(100 - (competitors * 2), 0);
-
-  // Rating score (20%) - higher avg rating = higher score
   const ratingScore = (avgRating / 5) * 100;
-
-  // Price competitiveness (10%) - lower price vs average = higher score
   const priceScore = priceVsAvg <= 1 ? (2 - priceVsAvg) * 100 : Math.max(100 - (priceVsAvg - 1) * 200, 0);
 
   const score = Math.round(
@@ -47,22 +55,30 @@ function calculateOpportunityScore(
   return Math.min(Math.max(score, 0), 100);
 }
 
-async function fetchProductDetails(shopid: string, itemid: string) {
-  const url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-  console.log('Fetching product:', url);
-
-  const response = await fetch(url, { headers: HEADERS });
-  if (!response.ok) {
-    throw new Error(`Shopee API error: ${response.status}`);
+async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 2): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await fetch(url, { headers });
+      if (response.ok) return response;
+      
+      // If blocked, wait and retry with slightly different headers
+      if (response.status === 403 && i < retries) {
+        console.log(`Got 403, retrying (${i + 1}/${retries})...`);
+        await delay(1000 + Math.random() * 2000);
+        continue;
+      }
+      
+      // Return even non-ok response on last attempt
+      return response;
+    } catch (err) {
+      if (i === retries) throw err;
+      await delay(1000);
+    }
   }
+  throw new Error('Max retries exceeded');
+}
 
-  const json = await response.json();
-  const item = json.data;
-
-  if (!item) {
-    throw new Error('Product not found');
-  }
-
+function parseProduct(item: any) {
   return {
     title: item.name || '',
     price: convertPrice(item.price || item.price_max || 0),
@@ -80,13 +96,68 @@ async function fetchProductDetails(shopid: string, itemid: string) {
   };
 }
 
+async function fetchProductDetails(shopid: string, itemid: string) {
+  // Try v4 API first
+  const v4Url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
+  console.log('Fetching product (v4):', v4Url);
+
+  let response = await fetchWithRetry(v4Url, getHeaders(`/product-i.${shopid}.${itemid}`));
+  
+  if (!response.ok) {
+    // Fallback: try v2 API
+    const v2Url = `${SHOPEE_BASE}/api/v2/item/get?itemid=${itemid}&shopid=${shopid}`;
+    console.log('Fallback to v2:', v2Url);
+    response = await fetchWithRetry(v2Url, getHeaders(`/product-i.${shopid}.${itemid}`));
+  }
+
+  if (!response.ok) {
+    throw new Error(`Shopee API error: ${response.status}. A Shopee pode estar bloqueando requisições temporariamente. Tente novamente em alguns minutos.`);
+  }
+
+  const json = await response.json();
+  const item = json.data || json.item;
+
+  if (!item) {
+    throw new Error('Produto não encontrado');
+  }
+
+  return parseProduct(item);
+}
+
 async function searchProducts(keyword: string, limit = 50) {
-  const url = `${SHOPEE_BASE}/api/v4/search/search_items?by=relevancy&keyword=${encodeURIComponent(keyword)}&limit=${limit}&newest=0&order=desc&page_type=search&scenario=PAGE_GLOBAL_SEARCH&version=2`;
+  const params = new URLSearchParams({
+    by: 'relevancy',
+    keyword,
+    limit: String(limit),
+    newest: '0',
+    order: 'desc',
+    page_type: 'search',
+    scenario: 'PAGE_GLOBAL_SEARCH',
+    version: '2',
+  });
+
+  const url = `${SHOPEE_BASE}/api/v4/search/search_items?${params}`;
   console.log('Searching products:', url);
 
-  const response = await fetch(url, { headers: HEADERS });
+  const response = await fetchWithRetry(url, getHeaders(`/search?keyword=${encodeURIComponent(keyword)}`));
+  
   if (!response.ok) {
-    throw new Error(`Shopee search API error: ${response.status}`);
+    // Try alternative search endpoint
+    const altUrl = `${SHOPEE_BASE}/api/v2/search_items/?by=relevancy&keyword=${encodeURIComponent(keyword)}&limit=${limit}&newest=0&order=desc&page_type=search`;
+    console.log('Fallback search (v2):', altUrl);
+    const altResponse = await fetchWithRetry(altUrl, getHeaders(`/search?keyword=${encodeURIComponent(keyword)}`));
+    
+    if (!altResponse.ok) {
+      console.error('Search failed with status:', altResponse.status);
+      return [];
+    }
+    
+    const altJson = await altResponse.json();
+    const altItems = altJson.items || altJson.data?.items || [];
+    return altItems.map((entry: any) => {
+      const item = entry.item_basic || entry;
+      return parseProduct(item);
+    });
   }
 
   const json = await response.json();
@@ -94,19 +165,7 @@ async function searchProducts(keyword: string, limit = 50) {
 
   return items.map((entry: any) => {
     const item = entry.item_basic || entry;
-    return {
-      title: item.name || '',
-      price: convertPrice(item.price || item.price_max || 0),
-      priceMin: convertPrice(item.price_min || item.price || 0),
-      priceMax: convertPrice(item.price_max || item.price || 0),
-      historicalSold: item.historical_sold || item.sold || 0,
-      stock: item.stock || 0,
-      ratingCount: item.cmt_count || item.item_rating?.rating_count?.[0] || 0,
-      ratingAvg: item.item_rating?.rating_star || 0,
-      shopid: item.shopid,
-      itemid: item.itemid,
-      image: item.image ? `https://down-br.img.susercontent.com/file/${item.image}` : '',
-    };
+    return parseProduct(item);
   });
 }
 
@@ -142,7 +201,6 @@ Deno.serve(async (req) => {
     const { action, url, keyword, shopid, itemid, limit, filters } = await req.json();
 
     if (action === 'analyze_link') {
-      // Extract shopid and itemid from URL
       const match = url?.match(/i\.(\d+)\.(\d+)/);
       if (!match) {
         return new Response(
@@ -154,31 +212,21 @@ Deno.serve(async (req) => {
       const extractedShopid = match[1];
       const extractedItemid = match[2];
 
-      // Fetch product details
       const product = await fetchProductDetails(extractedShopid, extractedItemid);
 
-      // Extract keywords from title for competitor search
       const keywords = product.title
         .split(/\s+/)
         .filter((w: string) => w.length > 3)
         .slice(0, 4)
         .join(' ');
 
-      await delay(500); // Rate limiting
+      await delay(800 + Math.random() * 700);
 
-      // Search for similar products
       const competitors = await searchProducts(keywords, 50);
-
-      // Calculate market metrics
       const metrics = calculateMarketMetrics(competitors, product.price);
 
       return new Response(
-        JSON.stringify({
-          success: true,
-          product,
-          competitors: competitors.slice(0, 20),
-          metrics,
-        }),
+        JSON.stringify({ success: true, product, competitors: competitors.slice(0, 20), metrics }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -193,7 +241,6 @@ Deno.serve(async (req) => {
 
       const products = await searchProducts(keyword, limit || 50);
 
-      // Apply filters
       let filtered = products;
       if (filters) {
         if (filters.minPrice) filtered = filtered.filter((p: any) => p.price >= filters.minPrice);
@@ -204,7 +251,6 @@ Deno.serve(async (req) => {
 
       const metrics = calculateMarketMetrics(filtered);
 
-      // Calculate individual scores
       const withScores = filtered.map((p: any) => ({
         ...p,
         score: calculateOpportunityScore(
@@ -216,13 +262,7 @@ Deno.serve(async (req) => {
       }));
 
       return new Response(
-        JSON.stringify({
-          success: true,
-          products: withScores,
-          metrics,
-          total: products.length,
-          filtered: filtered.length,
-        }),
+        JSON.stringify({ success: true, products: withScores, metrics, total: products.length, filtered: filtered.length }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
