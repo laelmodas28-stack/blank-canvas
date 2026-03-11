@@ -1,1 +1,4 @@
 project_id = "wtwfnesjxmhqyyymsqsr"
+
+[functions.shopee-scraper]
+verify_jwt = false
