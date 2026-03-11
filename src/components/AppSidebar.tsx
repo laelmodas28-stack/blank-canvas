@@ -9,7 +9,8 @@ import {
   User,
   SlidersHorizontal,
   ChevronDown,
-  ChevronLeft,
+  Trophy,
+  Search,
   Menu,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -19,12 +20,14 @@ import { cn } from "@/lib/utils";
 
 const precificacaoItems = [
   { title: "Calculadora de Lucro", url: "/precificacao", icon: Calculator },
-  { title: "Simulador de Preço Ideal", url: "/simulador-preco", icon: TrendingUp },
+  { title: "Preço Ideal", url: "/simulador-preco", icon: TrendingUp },
 ];
 
 const inteligenciaItems = [
   { title: "Radar de Produtos", url: "/radar-produtos", icon: Radar },
   { title: "Análise de Mercado", url: "/analise-mercado", icon: BarChart3 },
+  { title: "Produtos Vencedores", url: "/produtos-vencedores", icon: Trophy },
+  { title: "Caçador de Produtos", url: "/cacador-produtos", icon: Search },
 ];
 
 const anunciosItems = [
@@ -102,22 +105,19 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         collapsed ? "w-16" : "w-64"
       )}
     >
-      {/* Header */}
       <div className="p-4 border-b border-[hsl(var(--sidebar-border))] flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg bg-[hsl(var(--sidebar-primary))] flex items-center justify-center shrink-0">
-          <Calculator className="h-4 w-4 text-[hsl(var(--sidebar-primary-foreground))]" />
+          <BarChart3 className="h-4 w-4 text-[hsl(var(--sidebar-primary-foreground))]" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-[hsl(var(--sidebar-foreground))]">Calculadora</h2>
-            <p className="text-xs text-[hsl(var(--sidebar-muted))]">Plataforma de Vendas</p>
+            <h2 className="text-sm font-semibold text-[hsl(var(--sidebar-foreground))]">SellSmart</h2>
+            <p className="text-xs text-[hsl(var(--sidebar-muted))]">Inteligência de Vendas</p>
           </div>
         )}
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-        {/* Dashboard */}
         <NavLink
           to="/dashboard"
           end
@@ -139,7 +139,6 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         <MenuGroup label="Configurações" items={configItems} collapsed={collapsed} currentPath={currentPath} />
       </nav>
 
-      {/* Footer */}
       <div className="p-3 border-t border-[hsl(var(--sidebar-border))]">
         <div className={cn("flex items-center gap-3 px-2", collapsed && "justify-center px-0")}>
           <div className="h-8 w-8 rounded-full bg-[hsl(var(--sidebar-accent))] flex items-center justify-center shrink-0">

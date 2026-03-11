@@ -5,6 +5,8 @@ import Precificacao from "./pages/Precificacao";
 import SimuladorPreco from "./pages/SimuladorPreco";
 import RadarProdutos from "./pages/RadarProdutos";
 import AnaliseMercado from "./pages/AnaliseMercado";
+import ProdutosVencedores from "./pages/ProdutosVencedores";
+import CacadorProdutos from "./pages/CacadorProdutos";
 import CriarAnuncio from "./pages/CriarAnuncio";
 import Historico from "./pages/Historico";
 import Configuracoes from "./pages/Configuracoes";
@@ -21,6 +23,8 @@ function App() {
           <Route path="/simulador-preco" element={<SimuladorPreco />} />
           <Route path="/radar-produtos" element={<RadarProdutos />} />
           <Route path="/analise-mercado" element={<AnaliseMercado />} />
+          <Route path="/produtos-vencedores" element={<ProdutosVencedores />} />
+          <Route path="/cacador-produtos" element={<CacadorProdutos />} />
           <Route path="/criar-anuncio" element={<CriarAnuncio />} />
           <Route path="/historico" element={<Historico />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
