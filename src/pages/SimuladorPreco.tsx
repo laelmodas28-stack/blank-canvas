@@ -41,7 +41,7 @@ export default function SimuladorPreco() {
   const results = useMemo(() => {
     if (!hasInput) return null;
 
-    const fees = platform === "shopee" ? getShopeeBaseFees(cost * 2) : getMercadoLivreFees();
+    const fees = platform === "shopee" ? getShopeeBaseFees(cost * 2, sellerType) : getMercadoLivreFees();
     const fixedCosts = cost + shipping + fees.fixedFee;
     const denom = 1 - fees.commissionRate - tax / 100 - margin / 100;
     const idealPrice = denom > 0 ? fixedCosts / denom : 0;
