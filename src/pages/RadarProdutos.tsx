@@ -1,19 +1,32 @@
-import { Radar, Search, Filter, Loader2, Star, AlertCircle, ExternalLink } from "lucide-react";
+import {
+  Radar, Search, Filter, Loader2, Star, AlertCircle, ExternalLink,
+  TrendingUp, DollarSign, Users, ShoppingCart, Activity, ChevronDown, ChevronUp
+} from "lucide-react";
 import { useState } from "react";
-import { shopeeApi, getScoreInfo, getCompetitionLabel, type ShopeeProduct, type MarketMetrics, type SearchFilters } from "@/lib/api/shopee";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  shopeeApi, getScoreInfo, getCompetitionLabel,
+  type ShopeeProduct, type MarketMetrics, type SearchFilters
+} from "@/lib/api/shopee";
 
-function getScoreColor(score: number) {
-  if (score <= 40) return "text-destructive";
-  if (score <= 60) return "text-amber-500";
-  if (score <= 80) return "text-emerald-500";
-  return "text-primary";
+function ScoreBadge({ score }: { score: number }) {
+  const info = getScoreInfo(score);
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${info.bg} ${info.color}`}>
+      {score}
+    </span>
+  );
 }
 
-function getCompetitionBadge(label: string) {
-  if (label === "Baixa") return "bg-emerald-500/10 text-emerald-500";
-  if (label === "Média") return "bg-amber-500/10 text-amber-500";
-  return "bg-destructive/10 text-destructive";
+function CompetitionBadge({ count }: { count: number }) {
+  const label = getCompetitionLabel(count);
+  const styles = label === "Baixa"
+    ? "bg-emerald-500/10 text-emerald-600"
+    : label === "Média"
+    ? "bg-amber-500/10 text-amber-600"
+    : "bg-destructive/10 text-destructive";
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${styles}`}>{label}</span>
+  );
 }
 
 export default function RadarProdutos() {
@@ -28,6 +41,8 @@ export default function RadarProdutos() {
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState("");
   const [totalResults, setTotalResults] = useState(0);
+  const [sortField, setSortField] = useState<string>("score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const handleSearch = async () => {
     if (!keyword.trim()) return;
@@ -53,23 +68,6 @@ export default function RadarProdutos() {
       setResults(result.products || []);
       setMetrics(result.metrics || null);
       setTotalResults(result.total || 0);
-
-      // Save top results to database
-      const products = result.products || [];
-      for (const p of products.slice(0, 10)) {
-        await supabase.from("produtos_analisados" as any).insert({
-          titulo: p.title,
-          preco: p.price,
-          vendas: p.historicalSold,
-          avaliacoes: p.ratingCount,
-          avaliacao_media: p.ratingAvg,
-          plataforma: "shopee",
-          shopid: p.shopid,
-          itemid: p.itemid,
-          estoque: p.stock,
-          score_oportunidade: p.score || 0,
-        });
-      }
     } catch (err: any) {
       setError(err.message || "Erro de conexão.");
     } finally {
@@ -77,15 +75,44 @@ export default function RadarProdutos() {
     }
   };
 
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
+
+  const sortedResults = [...results].sort((a, b) => {
+    let aVal: number, bVal: number;
+    switch (sortField) {
+      case "price": aVal = a.price; bVal = b.price; break;
+      case "sales": aVal = a.historicalSold; bVal = b.historicalSold; break;
+      case "rating": aVal = a.ratingAvg; bVal = b.ratingAvg; break;
+      case "revenue": aVal = a.price * a.historicalSold; bVal = b.price * b.historicalSold; break;
+      default: aVal = a.score || 0; bVal = b.score || 0;
+    }
+    return sortDir === "desc" ? bVal - aVal : aVal - bVal;
+  });
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return null;
+    return sortDir === "desc" ? <ChevronDown className="h-3 w-3 inline ml-0.5" /> : <ChevronUp className="h-3 w-3 inline ml-0.5" />;
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
           <Radar className="h-5 w-5 text-primary" />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Radar de Produtos</h1>
-          <p className="text-sm text-muted-foreground">Pesquise produtos na Shopee por palavra-chave e analise o mercado com dados reais</p>
+          <p className="text-sm text-muted-foreground">
+            Pesquise e analise produtos da Shopee por palavra-chave
+          </p>
         </div>
       </div>
 
@@ -99,13 +126,17 @@ export default function RadarProdutos() {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="Digite uma palavra-chave (ex: fone bluetooth)"
-              className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-input bg-background text-foreground text-sm"
+              className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             />
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`px-4 py-2.5 rounded-lg border text-sm transition-colors ${showFilters ? "border-primary bg-primary/5 text-primary" : "border-input bg-background text-muted-foreground hover:text-foreground"}`}
+            className={`px-4 py-2.5 rounded-lg border text-sm transition-colors ${
+              showFilters
+                ? "border-primary bg-primary/5 text-primary"
+                : "border-input bg-background text-muted-foreground hover:text-foreground"
+            }`}
           >
             <Filter className="h-4 w-4" />
           </button>
@@ -143,7 +174,7 @@ export default function RadarProdutos() {
         {error && (
           <div className="mt-3 flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
+            <span>{error}</span>
           </div>
         )}
       </div>
@@ -152,85 +183,136 @@ export default function RadarProdutos() {
       {loading && (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
-          <p className="text-muted-foreground">Buscando produtos reais na Shopee...</p>
+          <p className="text-foreground font-medium">Coletando dados da Shopee</p>
+          <p className="text-xs text-muted-foreground mt-1">Analisando até 50 produtos</p>
         </div>
       )}
 
-      {/* Market Summary */}
+      {/* Market summary */}
       {metrics && !loading && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <div className="bg-card border border-border rounded-xl p-4">
+            <DollarSign className="h-4 w-4 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Preço Médio</p>
             <p className="text-lg font-bold text-foreground">R$ {metrics.avgPrice.toFixed(2)}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
+            <ShoppingCart className="h-4 w-4 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Vendas Médias</p>
             <p className="text-lg font-bold text-foreground">{metrics.avgSales.toLocaleString()}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
+            <Users className="h-4 w-4 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Concorrentes</p>
             <p className="text-lg font-bold text-foreground">{metrics.competitors}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
+            <TrendingUp className="h-4 w-4 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Faturamento Est.</p>
-            <p className="text-lg font-bold text-foreground">R$ {(metrics.estimatedRevenue / 1000).toFixed(0)}k</p>
+            <p className="text-lg font-bold text-foreground">
+              R$ {metrics.estimatedRevenue >= 1000
+                ? `${(metrics.estimatedRevenue / 1000).toFixed(0)}k`
+                : metrics.estimatedRevenue.toLocaleString()}
+            </p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
+            <Activity className="h-4 w-4 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Score Geral</p>
-            <p className={`text-lg font-bold ${getScoreColor(metrics.opportunityScore)}`}>{metrics.opportunityScore}</p>
-            <p className={`text-xs ${getScoreColor(metrics.opportunityScore)}`}>{getScoreInfo(metrics.opportunityScore).label}</p>
+            <p className={`text-lg font-bold ${getScoreInfo(metrics.opportunityScore).color}`}>
+              {metrics.opportunityScore}
+            </p>
+            <p className={`text-xs ${getScoreInfo(metrics.opportunityScore).color}`}>
+              {getScoreInfo(metrics.opportunityScore).label}
+            </p>
           </div>
         </div>
       )}
 
-      {/* Results Table */}
-      {results.length > 0 && !loading && (
+      {/* Results table */}
+      {sortedResults.length > 0 && !loading && (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30">
-            <p className="text-sm text-muted-foreground">{results.length} produtos encontrados (de {totalResults} resultados)</p>
+          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {sortedResults.length} de {totalResults} produtos
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Produto</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Preço</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Vendas</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground">Avaliação</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground">Concorrência</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Faturamento</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground">Score</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground">Link</th>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                    Produto
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort("price")}
+                  >
+                    Preço <SortIcon field="price" />
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort("sales")}
+                  >
+                    Vendas <SortIcon field="sales" />
+                  </th>
+                  <th
+                    className="text-center px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort("rating")}
+                  >
+                    Avaliação <SortIcon field="rating" />
+                  </th>
+                  <th className="text-center px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                    Concorrência
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort("revenue")}
+                  >
+                    Faturamento <SortIcon field="revenue" />
+                  </th>
+                  <th
+                    className="text-center px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort("score")}
+                  >
+                    Score <SortIcon field="score" />
+                  </th>
+                  <th className="text-center px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                    Ver
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {results.map((p, i) => {
-                  const compLabel = getCompetitionLabel(results.length);
-                  return (
-                    <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3 text-foreground max-w-[250px] truncate">{p.title}</td>
-                      <td className="px-4 py-3 text-right text-foreground">R$ {p.price.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right text-foreground">{p.historicalSold.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-center text-foreground">
-                        <span className="flex items-center justify-center gap-1">
-                          <Star className="h-3 w-3 text-amber-500" /> {p.ratingAvg.toFixed(1)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getCompetitionBadge(compLabel)}`}>{compLabel}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-foreground">R$ {(p.price * p.historicalSold / 1000).toFixed(0)}k</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`font-bold ${getScoreColor(p.score || 0)}`}>{p.score || 0}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <a href={`https://shopee.com.br/product-i.${p.shopid}.${p.itemid}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                          <ExternalLink className="h-4 w-4 inline" />
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {sortedResults.map((p, i) => (
+                  <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3 text-foreground max-w-[220px] truncate">{p.title}</td>
+                    <td className="px-4 py-3 text-right text-foreground font-medium">R$ {p.price.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right text-foreground">{p.historicalSold.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center gap-1 text-foreground">
+                        <Star className="h-3 w-3 text-amber-500" /> {p.ratingAvg.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <CompetitionBadge count={sortedResults.length} />
+                    </td>
+                    <td className="px-4 py-3 text-right text-foreground">
+                      R$ {((p.price * p.historicalSold) / 1000).toFixed(0)}k
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <ScoreBadge score={p.score || 0} />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <a
+                        href={`https://shopee.com.br/product-i.${p.shopid}.${p.itemid}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:text-primary/80 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4 inline" />
+                      </a>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
