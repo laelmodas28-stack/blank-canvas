@@ -1,7 +1,8 @@
-import { Calculator, CheckCircle2, TrendingUp, BarChart3, Target, AlertTriangle, ShieldAlert, Megaphone, DollarSign } from "lucide-react";
+import { Calculator, CheckCircle2, TrendingUp, BarChart3, AlertTriangle, ShieldAlert, Megaphone, DollarSign } from "lucide-react";
 import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
+// ── Types ─────────────────────────────────────────────────────
 type Platform = "mercadolivre" | "shopee";
 type DocType = "cpf" | "cnpj";
 type SellerMode = "normal" | "indicado";
@@ -17,39 +18,28 @@ function getShopeeBaseFees(price: number): { commissionRate: number; fixedFee: n
   return { commissionRate: 0.14, fixedFee: 26 };
 }
 
-function getShopeeScenarioFees(
-  price: number,
-  isIndicado: boolean,
+function buildCommissionRate(
+  baseRate: number,
   freeShipping: boolean,
   shopeeAcelera: boolean
-) {
-  const base = getShopeeBaseFees(price);
-  if (price < 8) return base;
-
-  let extraCommission = 0;
-  if (isIndicado || freeShipping) extraCommission += 0.06;
-
-  // Shopee Acelera: reduces anticipation fee by 2%
-  let aceleraBenefit = 0;
-  if (shopeeAcelera) aceleraBenefit = 0.02;
-
-  return {
-    commissionRate: base.commissionRate + extraCommission - aceleraBenefit,
-    fixedFee: isIndicado && freeShipping ? base.fixedFee : base.fixedFee,
-  };
+): number {
+  let rate = baseRate;
+  if (freeShipping) rate += 0.06;
+  if (shopeeAcelera) rate -= 0.02;
+  return Math.max(rate, 0);
 }
 
 function capCommission(price: number, rate: number): number {
-  return Math.min(price * rate, SHOPEE_COMMISSION_CAP);
+  return Math.round(Math.min(price * rate, SHOPEE_COMMISSION_CAP) * 100) / 100;
 }
 
-// ── Mercado Livre Fee Structure ───────────────────────────────
+// ── Mercado Livre ─────────────────────────────────────────────
 function getMercadoLivreFees(adType: "classico" | "premium") {
   if (adType === "classico") return { commissionRate: 0.12, fixedFee: 6.50 };
   return { commissionRate: 0.17, fixedFee: 6.50 };
 }
 
-// ── Scenario Result Type ──────────────────────────────────────
+// ── Scenario Calculation ──────────────────────────────────────
 interface ScenarioResult {
   label: string;
   subtitle: string;
@@ -66,36 +56,42 @@ interface ScenarioResult {
 }
 
 function calcScenario(
-  salePrice: number, costProduct: number, taxRate: number,
-  commissionRate: number, fixedFee: number, commissionCap: number | null,
-  label: string, subtitle: string, description: string
+  salePrice: number,
+  costProduct: number,
+  taxRate: number,
+  commissionRate: number,
+  fixedFee: number,
+  useCap: boolean,
+  label: string,
+  subtitle: string,
+  description: string
 ): ScenarioResult {
-  const rawCommission = salePrice * commissionRate;
-  const commission = commissionCap ? Math.min(rawCommission, commissionCap) : rawCommission;
-  const taxAmount = salePrice * (taxRate / 100);
-  const totalCosts = costProduct + commission + fixedFee + taxAmount;
-  const netProfit = salePrice - totalCosts;
-  const margin = salePrice > 0 ? (netProfit / salePrice) * 100 : 0;
-  const roi = costProduct > 0 ? (netProfit / costProduct) * 100 : 0;
-  const effectiveRate = commissionCap && salePrice > 0 ? commission / salePrice : commissionRate;
-  const denominator = 1 - effectiveRate - taxRate / 100;
-  const fixedCosts = costProduct + fixedFee;
-  const breakEven = denominator > 0 ? fixedCosts / denominator : 0;
+  const commission = useCap ? capCommission(salePrice, commissionRate) : Math.round(salePrice * commissionRate * 100) / 100;
+  const taxAmount = Math.round(salePrice * (taxRate / 100) * 100) / 100;
+  const totalCosts = Math.round((costProduct + commission + fixedFee + taxAmount) * 100) / 100;
+  const netProfit = Math.round((salePrice - totalCosts) * 100) / 100;
+  const margin = salePrice > 0 ? Math.round((netProfit / salePrice) * 10000) / 100 : 0;
+  const roi = costProduct > 0 ? Math.round((netProfit / costProduct) * 10000) / 100 : 0;
+  const breakEven = Math.round(totalCosts * 100) / 100;
   return { label, subtitle, commissionRate, fixedFee, commission, taxAmount, totalCosts, netProfit, margin, roi, breakEven, description };
 }
 
 // ── UI Components ─────────────────────────────────────────────
-function ToggleGroup({ options, value, onChange }: { options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
+function ToggleGroup({ options, value, onChange }: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
       {options.map(o => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
-          className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all text-center ${
+          className={`px-4 py-3 rounded-lg text-sm font-semibold transition-all text-center ${
             value === o.value
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "bg-muted text-muted-foreground hover:bg-accent"
+              ? "bg-primary text-primary-foreground shadow-md"
+              : "bg-muted text-muted-foreground hover:bg-accent border border-border"
           }`}
         >
           {o.label}
@@ -106,7 +102,7 @@ function ToggleGroup({ options, value, onChange }: { options: { value: string; l
 }
 
 function MetricCard({ label, value, sub, variant = "default", icon }: {
-  label: string; value: string; sub?: string; variant?: "default" | "positive" | "negative" | "primary"; icon?: React.ReactNode
+  label: string; value: string; sub?: string; variant?: "default" | "positive" | "negative" | "primary"; icon?: React.ReactNode;
 }) {
   const colorMap = {
     default: "text-foreground",
@@ -126,7 +122,11 @@ function MetricCard({ label, value, sub, variant = "default", icon }: {
   );
 }
 
-const COLORS = ["hsl(220, 70%, 55%)", "hsl(0, 70%, 55%)", "hsl(200, 70%, 45%)", "hsl(45, 80%, 50%)", "hsl(280, 60%, 50%)"];
+function fmt(n: number): string {
+  return n.toFixed(2).replace(".", ",");
+}
+
+const COLORS = ["hsl(220, 70%, 55%)", "hsl(0, 70%, 55%)", "hsl(200, 70%, 45%)", "hsl(45, 80%, 50%)"];
 
 // ── Main Component ────────────────────────────────────────────
 export default function Precificacao() {
@@ -140,33 +140,30 @@ export default function Precificacao() {
   const [costPrice, setCostPrice] = useState("10");
   const [salePrice, setSalePrice] = useState("29.90");
   const [taxRate, setTaxRate] = useState("7");
-  const [targetMargin, setTargetMargin] = useState("25");
 
   const cost = parseFloat(costPrice) || 0;
   const sale = parseFloat(salePrice) || 0;
   const tax = parseFloat(taxRate) || 0;
   const hasInput = cost > 0 && sale > 0;
 
-  // ── Scenarios ──
   const scenarios = useMemo(() => {
     if (platform === "shopee") {
-      // Scenario 1: Normal (no free shipping, no indicated)
-      const normalFees = getShopeeScenarioFees(sale, false, false, shopeeAcelera);
-      // Scenario 2: Indicado + Frete Grátis
-      const indicadoFees = getShopeeScenarioFees(sale, true, true, shopeeAcelera);
-
+      const base = getShopeeBaseFees(sale);
       const aceleraNote = shopeeAcelera ? " Shopee Acelera ativo: taxa reduzida de 2% por antecipação." : "";
 
+      // Normal: no free shipping
+      const normalRate = buildCommissionRate(base.commissionRate, false, shopeeAcelera);
+      // Indicado + Frete Grátis
+      const indicadoRate = buildCommissionRate(base.commissionRate, true, shopeeAcelera);
+
       return [
-        calcScenario(sale, cost, tax,
-          normalFees.commissionRate, normalFees.fixedFee, SHOPEE_COMMISSION_CAP,
+        calcScenario(sale, cost, tax, normalRate, base.fixedFee, true,
           "Shopee", "Normal (sem Frete Grátis)",
-          `Vendedor Normal: comissão ${(normalFees.commissionRate * 100).toFixed(0)}% + taxa fixa R$ ${normalFees.fixedFee.toFixed(2)}. Comissão NÃO incide sobre valor do frete.${aceleraNote}`
+          `Vendedor Normal: comissão ${(normalRate * 100).toFixed(0)}% + taxa fixa R$ ${base.fixedFee.toFixed(2)}. Comissão NÃO incide sobre valor do frete.${aceleraNote}`
         ),
-        calcScenario(sale, cost, tax,
-          indicadoFees.commissionRate, indicadoFees.fixedFee, SHOPEE_COMMISSION_CAP,
+        calcScenario(sale, cost, tax, indicadoRate, base.fixedFee, true,
           "Shopee", "Indicado + Frete Grátis",
-          `Vendedor indicado + Frete Gratis: comissão ${(indicadoFees.commissionRate * 100).toFixed(0)}% (${(getShopeeBaseFees(sale).commissionRate * 100).toFixed(0)}% + 2% programa) + taxa fixa R$ ${indicadoFees.fixedFee.toFixed(2)}.${aceleraNote}`
+          `Vendedor indicado + Frete Gratis: comissão ${(indicadoRate * 100).toFixed(0)}% (${(base.commissionRate * 100).toFixed(0)}% + 6% programa) + taxa fixa R$ ${base.fixedFee.toFixed(2)}.${aceleraNote}`
         ),
       ];
     }
@@ -174,9 +171,9 @@ export default function Precificacao() {
     const classico = getMercadoLivreFees("classico");
     const premium = getMercadoLivreFees("premium");
     return [
-      calcScenario(sale, cost, tax, classico.commissionRate, classico.fixedFee, null,
+      calcScenario(sale, cost, tax, classico.commissionRate, classico.fixedFee, false,
         "Mercado Livre", "Clássico", `Anúncio Clássico: ${(classico.commissionRate * 100).toFixed(0)}% comissão + R$ ${classico.fixedFee.toFixed(2)}.`),
-      calcScenario(sale, cost, tax, premium.commissionRate, premium.fixedFee, null,
+      calcScenario(sale, cost, tax, premium.commissionRate, premium.fixedFee, false,
         "Mercado Livre", "Premium", `Anúncio Premium: ${(premium.commissionRate * 100).toFixed(0)}% comissão + R$ ${premium.fixedFee.toFixed(2)}. Parcelamento sem juros.`),
     ];
   }, [platform, sale, cost, tax, shopeeAcelera]);
@@ -184,22 +181,22 @@ export default function Precificacao() {
   const bestIdx = scenarios[0].netProfit >= scenarios[1].netProfit ? 0 : 1;
   const best = scenarios[bestIdx];
 
-  // ── ROAS ──
+  // ROAS
   const adMetrics = useMemo(() => {
     if (!hasInput || best.netProfit <= 0) return null;
     const maxAdCost = best.netProfit;
-    const minROAS = sale / maxAdCost;
-    const recommendedAdSpend = best.netProfit * 0.4;
+    const minROAS = Math.round((sale / maxAdCost) * 100) / 100;
+    const recommendedAdSpend = Math.round(best.netProfit * 0.4 * 100) / 100;
     const roasLevels = [2, 3, 4, 5].map(roas => {
-      const adCostPerSale = sale / roas;
-      const profitAfterAds = best.netProfit - adCostPerSale;
-      const marginAfterAds = sale > 0 ? (profitAfterAds / sale) * 100 : 0;
+      const adCostPerSale = Math.round((sale / roas) * 100) / 100;
+      const profitAfterAds = Math.round((best.netProfit - adCostPerSale) * 100) / 100;
+      const marginAfterAds = sale > 0 ? Math.round((profitAfterAds / sale) * 10000) / 100 : 0;
       return { roas, adCostPerSale, profitAfterAds, marginAfterAds };
     });
     return { maxAdCost, minROAS, recommendedAdSpend, roasLevels };
   }, [hasInput, best, sale]);
 
-  // ── Decision Indicators ──
+  // Decision Indicators
   const indicators = useMemo(() => {
     if (!hasInput) return [];
     const items: { label: string; type: "positive" | "warning" | "negative"; icon: React.ReactNode }[] = [];
@@ -212,7 +209,7 @@ export default function Precificacao() {
     return items;
   }, [hasInput, best, adMetrics]);
 
-  // ── Chart Data ──
+  // Chart data
   const pieData = hasInput ? [
     { name: "Produto", value: cost },
     { name: "Comissão", value: best.commission },
@@ -248,7 +245,7 @@ export default function Precificacao() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* ── LEFT: Configuration Panel ── */}
+        {/* ── LEFT: Configuration ── */}
         <div className="xl:col-span-4 space-y-5">
           <div className="bg-card border border-border rounded-xl p-5 space-y-5">
             {/* Platform */}
@@ -260,7 +257,7 @@ export default function Precificacao() {
               ]} />
             </div>
 
-            {/* Document Type */}
+            {/* Document */}
             {platform === "shopee" && (
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Documento</label>
@@ -323,30 +320,20 @@ export default function Precificacao() {
               <div>
                 <label className="text-sm text-muted-foreground block mb-1">Custo do Produto (R$)</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">💰</span>
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
                 </div>
               </div>
               <div>
                 <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
                 </div>
               </div>
               <div>
                 <label className="text-sm text-muted-foreground block mb-1">Alíquota de Impostos (%)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span>
-                  <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="7" className={`${inputClass} pl-9`} />
-                </div>
-              </div>
-              <div>
-                <label className="text-sm text-muted-foreground block mb-1">Margem Desejada (%)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">😊</span>
-                  <input type="number" value={targetMargin} onChange={e => setTargetMargin(e.target.value)} placeholder="25" className={`${inputClass} pl-9`} />
-                </div>
+                <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="7" className={inputClass} />
               </div>
             </div>
           </div>
@@ -356,7 +343,7 @@ export default function Precificacao() {
         <div className="xl:col-span-8 space-y-5">
           {hasInput ? (
             <>
-              {/* Decision Indicators */}
+              {/* Indicators */}
               {indicators.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {indicators.map((ind, i) => (
@@ -368,30 +355,30 @@ export default function Precificacao() {
                 </div>
               )}
 
-              {/* Summary Metric Cards */}
+              {/* Summary Cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <MetricCard
                   label="Lucro Líquido"
-                  value={`R$ ${best.netProfit.toFixed(2).replace(".", ",")}`}
+                  value={`R$ ${fmt(best.netProfit)}`}
                   sub={best.subtitle}
                   variant={best.netProfit >= 0 ? "positive" : "negative"}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <MetricCard
                   label="Margem de Lucro"
-                  value={`${best.margin.toFixed(2).replace(".", ",")}%`}
+                  value={`${fmt(best.margin)}%`}
                   sub="Sobre o preço de venda"
                   variant={best.margin >= 15 ? "positive" : best.margin >= 0 ? "default" : "negative"}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <MetricCard
                   label="Custo Total"
-                  value={`R$ ${best.totalCosts.toFixed(2).replace(".", ",")}`}
-                  sub={`${((best.totalCosts / sale) * 100).toFixed(2).replace(".", ",")}% do preço`}
+                  value={`R$ ${fmt(best.totalCosts)}`}
+                  sub={`${fmt((best.totalCosts / sale) * 100)}% do preço`}
                 />
                 <MetricCard
                   label="Break-even"
-                  value={`R$ ${best.breakEven.toFixed(2).replace(".", ",")}`}
+                  value={`R$ ${fmt(best.breakEven)}`}
                   sub="Preço mínimo sem prejuízo"
                 />
               </div>
@@ -413,53 +400,49 @@ export default function Precificacao() {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between font-medium">
                           <span className="text-foreground">Preço de Venda</span>
-                          <span className="text-foreground">R$ {sale.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-foreground">R$ {fmt(sale)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Custo do Produto</span>
-                          <span className="text-foreground">- R$ {cost.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-foreground">- R$ {fmt(cost)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Comissão ({(s.commissionRate * 100).toFixed(2).replace(".", ",")}%)</span>
-                          <span className="text-foreground">- R$ {s.commission.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-muted-foreground">Comissão ({fmt(s.commissionRate * 100)}%)</span>
+                          <span className="text-foreground">- R$ {fmt(s.commission)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Taxa Fixa</span>
-                          <span className="text-foreground">- R$ {s.fixedFee.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-foreground">- R$ {fmt(s.fixedFee)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Impostos ({tax}%)</span>
-                          <span className="text-foreground">- R$ {s.taxAmount.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-foreground">- R$ {fmt(s.taxAmount)}</span>
                         </div>
                       </div>
 
-                      {/* Net Profit */}
                       <div className="border-t border-border mt-4 pt-4 flex justify-between items-center">
                         <span className="font-semibold text-foreground">Lucro Líquido</span>
                         <span className={`text-xl font-bold ${s.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>
-                          R$ {s.netProfit.toFixed(2).replace(".", ",")}
+                          R$ {fmt(s.netProfit)}
                         </span>
                       </div>
 
-                      {/* Margin / ROI */}
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         <div className="bg-muted/30 rounded-lg p-3 text-center">
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Margem</p>
-                          <p className={`text-base font-bold ${s.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.margin.toFixed(2).replace(".", ",")}%</p>
+                          <p className={`text-base font-bold ${s.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>{fmt(s.margin)}%</p>
                         </div>
                         <div className="bg-muted/30 rounded-lg p-3 text-center">
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">ROI</p>
-                          <p className={`text-base font-bold ${s.roi >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.roi.toFixed(2).replace(".", ",")}%</p>
+                          <p className={`text-base font-bold ${s.roi >= 0 ? "text-emerald-600" : "text-destructive"}`}>{fmt(s.roi)}%</p>
                         </div>
                       </div>
 
-                      {/* Break-even */}
                       <div className="flex justify-between items-center mt-3 px-1">
                         <span className="text-sm text-muted-foreground">Break-even</span>
-                        <span className="text-sm font-bold text-foreground">R$ {s.breakEven.toFixed(2).replace(".", ",")}</span>
+                        <span className="text-sm font-bold text-foreground">R$ {fmt(s.breakEven)}</span>
                       </div>
 
-                      {/* Description */}
                       <p className="text-xs text-muted-foreground mt-4 leading-relaxed">{s.description}</p>
                     </div>
                   ))}
@@ -471,9 +454,9 @@ export default function Precificacao() {
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Motor de Anúncios e ROAS</h2>
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-                    <MetricCard label="Gasto Máximo por Venda" value={`R$ ${adMetrics.maxAdCost.toFixed(2).replace(".", ",")}`} sub="Máximo sem ter prejuízo" variant="primary" />
-                    <MetricCard label="ROAS Mínimo" value={adMetrics.minROAS.toFixed(2).replace(".", ",")} sub="Para não ter prejuízo" variant={adMetrics.minROAS <= 3 ? "positive" : "negative"} />
-                    <MetricCard label="Gasto Recomendado" value={`R$ ${adMetrics.recommendedAdSpend.toFixed(2).replace(".", ",")}`} sub="40% do lucro líquido" variant="primary" />
+                    <MetricCard label="Gasto Máximo por Venda" value={`R$ ${fmt(adMetrics.maxAdCost)}`} sub="Máximo sem ter prejuízo" variant="primary" />
+                    <MetricCard label="ROAS Mínimo" value={fmt(adMetrics.minROAS)} sub="Para não ter prejuízo" variant={adMetrics.minROAS <= 3 ? "positive" : "negative"} />
+                    <MetricCard label="Gasto Recomendado" value={`R$ ${fmt(adMetrics.recommendedAdSpend)}`} sub="40% do lucro líquido" variant="primary" />
                   </div>
 
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Simulador de ROAS</h4>
@@ -483,9 +466,9 @@ export default function Precificacao() {
                         <p className="text-xs text-muted-foreground font-semibold">ROAS {r.roas}</p>
                         <div className="mt-2 space-y-1">
                           <p className="text-[11px] text-muted-foreground">Custo do Anúncio</p>
-                          <p className="text-sm font-bold text-foreground">R$ {r.adCostPerSale.toFixed(2).replace(".", ",")}</p>
+                          <p className="text-sm font-bold text-foreground">R$ {fmt(r.adCostPerSale)}</p>
                           <p className="text-[11px] text-muted-foreground mt-1">Lucro Final</p>
-                          <p className={`text-sm font-bold ${r.profitAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {r.profitAfterAds.toFixed(2).replace(".", ",")}</p>
+                          <p className={`text-sm font-bold ${r.profitAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {fmt(r.profitAfterAds)}</p>
                           <p className={`text-xs font-semibold mt-1 ${r.marginAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>{r.marginAfterAds.toFixed(1).replace(".", ",")}%</p>
                         </div>
                       </div>
@@ -503,7 +486,7 @@ export default function Precificacao() {
                       <Pie data={pieData} cx="50%" cy="50%" innerRadius={45} outerRadius={80} dataKey="value" paddingAngle={3}>
                         {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie>
-                      <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`} />
+                      <Tooltip formatter={(v: number) => `R$ ${fmt(v)}`} />
                       <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: "11px" }} />
                     </PieChart>
                   </ResponsiveContainer>
@@ -515,7 +498,7 @@ export default function Precificacao() {
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `R$${v}`} />
-                      <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`} />
+                      <Tooltip formatter={(v: number) => `R$ ${fmt(v)}`} />
                       <Bar dataKey="Lucro" fill="hsl(150, 60%, 40%)" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="Custos" fill="hsl(0, 65%, 55%)" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -533,7 +516,7 @@ export default function Precificacao() {
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
                     <p className="text-sm text-muted-foreground">
-                      O plano <strong className="text-foreground">{best.label} {best.subtitle}</strong> oferece o melhor lucro de R$ {best.netProfit.toFixed(2).replace(".", ",")} com margem de {best.margin.toFixed(1).replace(".", ",")}%.
+                      O plano <strong className="text-foreground">{best.label} {best.subtitle}</strong> oferece o melhor lucro de R$ {fmt(best.netProfit)} com margem de {best.margin.toFixed(1).replace(".", ",")}%.
                     </p>
                   </div>
                   {best.margin < 0 && (
@@ -552,7 +535,7 @@ export default function Precificacao() {
                     <div className="flex items-start gap-2">
                       <Megaphone className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                       <p className="text-sm text-muted-foreground">
-                        ROAS mínimo: {adMetrics.minROAS.toFixed(2).replace(".", ",")}. Gasto máximo por venda: R$ {adMetrics.maxAdCost.toFixed(2).replace(".", ",")}.
+                        ROAS mínimo: {fmt(adMetrics.minROAS)}. Gasto máximo por venda: R$ {fmt(adMetrics.maxAdCost)}.
                       </p>
                     </div>
                   )}
