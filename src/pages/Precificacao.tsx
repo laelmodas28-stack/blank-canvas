@@ -140,6 +140,8 @@ export default function Precificacao() {
   const [costPrice, setCostPrice] = useState("10");
   const [salePrice, setSalePrice] = useState("29.90");
   const [taxRate, setTaxRate] = useState("7");
+  const [desiredMargin, setDesiredMargin] = useState("");
+  const [useMarginCalc, setUseMarginCalc] = useState(false);
 
   const cost = parseFloat(costPrice) || 0;
   const sale = parseFloat(salePrice) || 0;
