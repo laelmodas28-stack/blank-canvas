@@ -2,11 +2,18 @@ import { TrendingUp, DollarSign, Target, CheckCircle2 } from "lucide-react";
 import { useState, useMemo } from "react";
 
 type Platform = "shopee" | "mercadolivre";
+type SellerType = "cpf" | "cnpj";
 
 const SHOPEE_COMMISSION_CAP = 105;
 
-function getShopeeBaseFees(price: number) {
+function getShopeeBaseFees(price: number, sellerType: SellerType) {
   if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (sellerType === "cpf") {
+    if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 7 };
+    if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 7 };
+    if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 7 };
+    return { commissionRate: 0.14, fixedFee: 7 };
+  }
   if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 4 };
   if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 16 };
   if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 20 };
@@ -23,6 +30,7 @@ export default function SimuladorPreco() {
   const [shippingCost, setShippingCost] = useState("");
   const [taxRate, setTaxRate] = useState("7");
   const [platform, setPlatform] = useState<Platform>("shopee");
+  const [sellerType, setSellerType] = useState<SellerType>("cnpj");
 
   const cost = parseFloat(costPrice) || 0;
   const margin = parseFloat(targetMargin) || 0;
@@ -33,7 +41,7 @@ export default function SimuladorPreco() {
   const results = useMemo(() => {
     if (!hasInput) return null;
 
-    const fees = platform === "shopee" ? getShopeeBaseFees(cost * 2) : getMercadoLivreFees();
+    const fees = platform === "shopee" ? getShopeeBaseFees(cost * 2, sellerType) : getMercadoLivreFees();
     const fixedCosts = cost + shipping + fees.fixedFee;
     const denom = 1 - fees.commissionRate - tax / 100 - margin / 100;
     const idealPrice = denom > 0 ? fixedCosts / denom : 0;
@@ -91,6 +99,15 @@ export default function SimuladorPreco() {
               <option value="mercadolivre">Mercado Livre</option>
             </select>
           </div>
+          {platform === "shopee" && (
+            <div>
+              <label className="text-sm text-muted-foreground block mb-1">Tipo de Vendedor</label>
+              <select value={sellerType} onChange={(e) => setSellerType(e.target.value as SellerType)} className={inputClass}>
+                <option value="cnpj">CNPJ (Taxa fixa variável)</option>
+                <option value="cpf">CPF (Taxa fixa R$ 7,00)</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-sm text-muted-foreground block mb-1">Custo do Produto (R$)</label>
             <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0,00" className={inputClass} />

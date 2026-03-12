@@ -1,8 +1,9 @@
-import { Calculator, CheckCircle2, TrendingUp, BarChart3, Target, AlertTriangle, ShieldAlert, Megaphone } from "lucide-react";
+import { Calculator, CheckCircle2, TrendingUp, BarChart3, Target, AlertTriangle, ShieldAlert, Megaphone, ChevronDown, Package, Settings, DollarSign, PieChart as PieChartIcon } from "lucide-react";
 import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 type Platform = "mercadolivre" | "shopee";
+type SellerType = "cpf" | "cnpj";
 
 interface FeeResult {
   commissionRate: number;
@@ -27,23 +28,42 @@ interface ScenarioResult {
 // ── Shopee Brazil 2026 Fee Structure ──────────────────────────
 const SHOPEE_COMMISSION_CAP = 105;
 
-function getShopeeBaseFees(price: number): FeeResult {
+function getShopeeBaseFees(price: number, sellerType: SellerType): FeeResult {
   if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+
+  if (sellerType === "cpf") {
+    // CPF sellers have a flat R$7 fixed fee across all tiers
+    if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 7 };
+    if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 7 };
+    if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 7 };
+    return { commissionRate: 0.14, fixedFee: 7 };
+  }
+
+  // CNPJ sellers use tiered fixed fees
   if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 4 };
   if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 16 };
   if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 20 };
   return { commissionRate: 0.14, fixedFee: 26 };
 }
 
-function getShopeeIndicadoFees(price: number): FeeResult {
-  const base = getShopeeBaseFees(price);
+function getShopeeWithExtras(
+  price: number,
+  sellerType: SellerType,
+  freeShipping: boolean,
+  campaign: boolean,
+  sponsored: boolean
+): FeeResult {
+  const base = getShopeeBaseFees(price, sellerType);
   if (price < 8) return base;
-  return { commissionRate: base.commissionRate + 0.02, fixedFee: base.fixedFee };
+  let extra = 0;
+  if (freeShipping) extra += 0.06;
+  if (campaign) extra += 0.02;
+  if (sponsored) extra += 0.03;
+  return { commissionRate: base.commissionRate + extra, fixedFee: base.fixedFee };
 }
 
 function capCommission(price: number, rate: number): number {
-  const raw = price * rate;
-  return Math.min(raw, SHOPEE_COMMISSION_CAP);
+  return Math.min(price * rate, SHOPEE_COMMISSION_CAP);
 }
 
 // ── Mercado Livre Fee Structure ───────────────────────────────
@@ -88,22 +108,58 @@ function calcStrategicPrice(
 // ── UI Components ─────────────────────────────────────────────
 const COLORS = ["hsl(220, 70%, 55%)", "hsl(0, 70%, 55%)", "hsl(200, 70%, 45%)", "hsl(45, 80%, 50%)", "hsl(280, 60%, 50%)"];
 
-function ToggleGroup({ label, options, value, onChange }: { label: string; options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
+function AccordionSection({ title, icon, defaultOpen = false, children }: { title: string; icon: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</h3>
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
-        {options.map(o => (
-          <button
-            key={o.value}
-            onClick={() => onChange(o.value)}
-            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${value === o.value ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            {icon}
+          </div>
+          <span className="font-semibold text-foreground text-sm">{title}</span>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="px-5 pb-5 pt-1">{children}</div>}
     </div>
+  );
+}
+
+function ToggleGroup({ options, value, onChange }: { options: { value: string; label: string; sub?: string }[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+      {options.map(o => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-4 py-3 rounded-lg text-sm font-medium transition-all text-center ${value === o.value ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+        >
+          <span className="block">{o.label}</span>
+          {o.sub && <span className="block text-[10px] mt-0.5 opacity-80">{o.sub}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ToggleSwitch({ label, description, checked, onChange }: { label: string; description?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all text-left ${checked ? "bg-primary/5 border-primary/30" : "bg-muted/20 border-border"}`}
+    >
+      <div>
+        <span className="text-sm font-medium text-foreground block">{label}</span>
+        {description && <span className="text-xs text-muted-foreground">{description}</span>}
+      </div>
+      <div className={`h-5 w-9 rounded-full transition-colors relative ${checked ? "bg-primary" : "bg-muted-foreground/30"}`}>
+        <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`} />
+      </div>
+    </button>
   );
 }
 
@@ -117,8 +173,8 @@ function MetricCard({ label, value, sub, variant = "default" }: { label: string;
   return (
     <div className="bg-card border border-border rounded-xl p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-xl font-bold mt-1 ${colorMap[variant]}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+      <p className={`text-lg sm:text-xl font-bold mt-1 ${colorMap[variant]}`}>{value}</p>
+      {sub && <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -126,8 +182,13 @@ function MetricCard({ label, value, sub, variant = "default" }: { label: string;
 // ── Main Component ────────────────────────────────────────────
 export default function Precificacao() {
   const [platform, setPlatform] = useState<Platform>("shopee");
-  const [vendorType, setVendorType] = useState<"normal" | "indicado">("normal");
+  const [sellerType, setSellerType] = useState<SellerType>("cnpj");
   const [adType, setAdType] = useState<"classico" | "premium">("classico");
+
+  // Announcement settings
+  const [freeShipping, setFreeShipping] = useState(false);
+  const [campaign, setCampaign] = useState(false);
+  const [sponsored, setSponsored] = useState(false);
 
   const [costPrice, setCostPrice] = useState("18");
   const [salePrice, setSalePrice] = useState("49.90");
@@ -147,17 +208,24 @@ export default function Precificacao() {
   // ── Scenarios ──
   const scenarios = useMemo(() => {
     if (platform === "shopee") {
-      const normal = getShopeeBaseFees(sale);
-      const indicado = getShopeeIndicadoFees(sale);
+      const baseFees = getShopeeBaseFees(sale, sellerType);
+      const withExtras = getShopeeWithExtras(sale, sellerType, freeShipping, campaign, sponsored);
+
+      const extraDesc = [
+        freeShipping ? "Frete Grátis (+6%)" : "",
+        campaign ? "Campanha (+2%)" : "",
+        sponsored ? "Patrocinado (+3%)" : "",
+      ].filter(Boolean).join(", ");
+
       return [
         calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal,
-          normal.commissionRate, normal.fixedFee, SHOPEE_COMMISSION_CAP,
-          "Shopee", "Normal",
-          `Comissão ${(normal.commissionRate * 100).toFixed(0)}% + taxa fixa R$ ${normal.fixedFee.toFixed(2)}. Teto de comissão: R$ ${SHOPEE_COMMISSION_CAP}.`),
+          baseFees.commissionRate, baseFees.fixedFee, SHOPEE_COMMISSION_CAP,
+          "Shopee", `${sellerType.toUpperCase()} — Sem extras`,
+          `Comissão ${(baseFees.commissionRate * 100).toFixed(0)}% + taxa fixa R$ ${baseFees.fixedFee.toFixed(2)}. Vendedor ${sellerType.toUpperCase()}.`),
         calcScenario(sale, cost, tax, freteVal, embalagemVal, outrosVal,
-          indicado.commissionRate, indicado.fixedFee, SHOPEE_COMMISSION_CAP,
-          "Shopee", "Indicado + Frete Grátis",
-          `Comissão ${(indicado.commissionRate * 100).toFixed(0)}% (+2% programa) + taxa fixa R$ ${indicado.fixedFee.toFixed(2)}. Teto: R$ ${SHOPEE_COMMISSION_CAP}.`),
+          withExtras.commissionRate, withExtras.fixedFee, SHOPEE_COMMISSION_CAP,
+          "Shopee", `${sellerType.toUpperCase()} — Com extras`,
+          `Comissão ${(withExtras.commissionRate * 100).toFixed(0)}% + taxa fixa R$ ${withExtras.fixedFee.toFixed(2)}. ${extraDesc || "Sem programas ativos."}`),
       ];
     }
     const classico = getMercadoLivreFees("classico");
@@ -170,7 +238,7 @@ export default function Precificacao() {
         premium.commissionRate, premium.fixedFee, null,
         "Mercado Livre", "Premium", premium.description),
     ];
-  }, [platform, sale, cost, tax, freteVal, embalagemVal, outrosVal]);
+  }, [platform, sellerType, freeShipping, campaign, sponsored, sale, cost, tax, freteVal, embalagemVal, outrosVal]);
 
   const bestIdx = scenarios[0].netProfit >= scenarios[1].netProfit ? 0 : 1;
   const best = scenarios[bestIdx];
@@ -178,7 +246,7 @@ export default function Precificacao() {
   // ── Strategic Prices ──
   const strategicPrices = useMemo(() => {
     const fees = platform === "shopee"
-      ? (vendorType === "indicado" ? getShopeeIndicadoFees(sale) : getShopeeBaseFees(sale))
+      ? getShopeeWithExtras(sale, sellerType, freeShipping, campaign, sponsored)
       : getMercadoLivreFees(adType);
     const calc = (m: number) => calcStrategicPrice(cost, tax, freteVal, embalagemVal, outrosVal, fees.commissionRate, fees.fixedFee, m);
     return {
@@ -187,7 +255,7 @@ export default function Precificacao() {
       margin40: calc(40),
       margin50: calc(50),
     };
-  }, [platform, vendorType, adType, cost, tax, sale, freteVal, embalagemVal, outrosVal]);
+  }, [platform, sellerType, adType, freeShipping, campaign, sponsored, cost, tax, sale, freteVal, embalagemVal, outrosVal]);
 
   // ── ROAS & Ad Engine ──
   const adMetrics = useMemo(() => {
@@ -231,12 +299,12 @@ export default function Precificacao() {
   ].filter(d => d.value > 0) : [];
 
   const barData = hasInput ? scenarios.map(s => ({
-    name: s.subtitle,
+    name: s.subtitle.length > 20 ? s.subtitle.slice(0, 18) + "…" : s.subtitle,
     Lucro: parseFloat(s.netProfit.toFixed(2)),
     Custos: parseFloat(s.totalCosts.toFixed(2)),
   })) : [];
 
-  const inputClass = "w-full px-3 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all";
+  const inputClass = "w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all";
 
   const indicatorColors = {
     positive: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
@@ -246,136 +314,164 @@ export default function Precificacao() {
 
   return (
     <div className="max-w-[1400px] mx-auto">
-      <div className="flex items-center gap-3 mb-8">
+      <div className="flex items-center gap-3 mb-6">
         <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center">
           <Calculator className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Motor de Precificação</h1>
-          <p className="text-sm text-muted-foreground">Calcule lucro real, ROAS e encontre o preço ideal para vender com lucro</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Motor de Precificação</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">Calcule lucro real, ROAS e encontre o preço ideal</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* ── LEFT COLUMN: Inputs ── */}
-        <div className="xl:col-span-4 space-y-5">
-          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-            <ToggleGroup label="Plataforma" value={platform} onChange={v => setPlatform(v as Platform)} options={[
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6">
+        {/* ── LEFT COLUMN: Inputs (Accordion on mobile) ── */}
+        <div className="xl:col-span-4 space-y-3">
+          {/* Platform */}
+          <AccordionSection title="Plataforma" icon={<Package className="h-4 w-4 text-primary" />} defaultOpen>
+            <ToggleGroup value={platform} onChange={v => setPlatform(v as Platform)} options={[
               { value: "shopee", label: "Shopee" },
               { value: "mercadolivre", label: "Mercado Livre" },
             ]} />
-            {platform === "shopee" && (
-              <ToggleGroup label="Tipo de Vendedor" value={vendorType} onChange={v => setVendorType(v as "normal" | "indicado")} options={[
-                { value: "normal", label: "Normal" },
-                { value: "indicado", label: "Indicado" },
-              ]} />
-            )}
-            {platform === "mercadolivre" && (
-              <ToggleGroup label="Tipo de Anúncio" value={adType} onChange={v => setAdType(v as "classico" | "premium")} options={[
-                { value: "classico", label: "Clássico" },
-                { value: "premium", label: "Premium" },
-              ]} />
-            )}
-          </div>
+          </AccordionSection>
 
-          <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Custos e Preço</h3>
-            {([
-              { label: "Custo do Produto (R$)", value: costPrice, setter: setCostPrice },
-              { label: "Preço de Venda (R$)", value: salePrice, setter: setSalePrice },
-              { label: "Alíquota de Impostos (%)", value: taxRate, setter: setTaxRate },
-            ] as const).map(f => (
-              <div key={f.label}>
-                <label className="text-sm text-muted-foreground block mb-1">{f.label}</label>
-                <input type="number" value={f.value} onChange={e => f.setter(e.target.value)} placeholder="0" className={inputClass} />
+          {/* Seller Type */}
+          {platform === "shopee" && (
+            <AccordionSection title="Tipo de Vendedor" icon={<Settings className="h-4 w-4 text-primary" />} defaultOpen>
+              <ToggleGroup value={sellerType} onChange={v => setSellerType(v as SellerType)} options={[
+                { value: "cpf", label: "CPF", sub: "Taxa fixa R$ 7,00" },
+                { value: "cnpj", label: "CNPJ", sub: "Taxa fixa variável" },
+              ]} />
+              <div className="mt-3 p-3 rounded-lg bg-muted/30 border border-border">
+                <p className="text-xs text-muted-foreground">
+                  {sellerType === "cpf"
+                    ? "Vendedor CPF: taxa fixa de R$ 7,00 em todas as faixas de preço."
+                    : "Vendedor CNPJ: taxa fixa varia de R$ 4,00 a R$ 26,00 conforme o preço."}
+                </p>
               </div>
-            ))}
-          </div>
+            </AccordionSection>
+          )}
 
-          <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Custos Adicionais</h3>
-            {([
-              { label: "Frete (R$)", value: frete, setter: setFrete },
-              { label: "Embalagem (R$)", value: embalagem, setter: setEmbalagem },
-              { label: "Outros Custos (R$)", value: outrosCustos, setter: setOutrosCustos },
-            ] as const).map(f => (
-              <div key={f.label}>
-                <label className="text-sm text-muted-foreground block mb-1">{f.label}</label>
-                <input type="number" value={f.value} onChange={e => f.setter(e.target.value)} placeholder="0" className={inputClass} />
+          {/* ML Ad Type */}
+          {platform === "mercadolivre" && (
+            <AccordionSection title="Tipo de Anúncio" icon={<Settings className="h-4 w-4 text-primary" />} defaultOpen>
+              <ToggleGroup value={adType} onChange={v => setAdType(v as "classico" | "premium")} options={[
+                { value: "classico", label: "Clássico", sub: "12% comissão" },
+                { value: "premium", label: "Premium", sub: "17% comissão" },
+              ]} />
+            </AccordionSection>
+          )}
+
+          {/* Announcement Settings */}
+          {platform === "shopee" && (
+            <AccordionSection title="Configuração do Anúncio" icon={<Megaphone className="h-4 w-4 text-primary" />} defaultOpen={false}>
+              <div className="space-y-2">
+                <ToggleSwitch
+                  label="Frete Grátis"
+                  description="Adiciona +6% de comissão"
+                  checked={freeShipping}
+                  onChange={setFreeShipping}
+                />
+                <ToggleSwitch
+                  label="Participação em Campanhas"
+                  description="Adiciona +2% de comissão"
+                  checked={campaign}
+                  onChange={setCampaign}
+                />
+                <ToggleSwitch
+                  label="Anúncio Patrocinado"
+                  description="Adiciona +3% de comissão"
+                  checked={sponsored}
+                  onChange={setSponsored}
+                />
               </div>
-            ))}
-          </div>
+            </AccordionSection>
+          )}
+
+          {/* Cost Inputs */}
+          <AccordionSection title="Custos do Produto" icon={<DollarSign className="h-4 w-4 text-primary" />} defaultOpen>
+            <div className="space-y-3">
+              {([
+                { label: "Custo do Produto (R$)", value: costPrice, setter: setCostPrice, ph: "0,00" },
+                { label: "Preço de Venda (R$)", value: salePrice, setter: setSalePrice, ph: "0,00" },
+                { label: "Alíquota de Impostos (%)", value: taxRate, setter: setTaxRate, ph: "7" },
+                { label: "Frete (R$)", value: frete, setter: setFrete, ph: "0,00" },
+                { label: "Embalagem (R$)", value: embalagem, setter: setEmbalagem, ph: "0,00" },
+                { label: "Outros Custos (R$)", value: outrosCustos, setter: setOutrosCustos, ph: "0,00" },
+              ] as const).map(f => (
+                <div key={f.label}>
+                  <label className="text-sm text-muted-foreground block mb-1">{f.label}</label>
+                  <input type="number" value={f.value} onChange={e => f.setter(e.target.value)} placeholder={f.ph} className={inputClass} />
+                </div>
+              ))}
+            </div>
+          </AccordionSection>
         </div>
 
         {/* ── RIGHT COLUMN: Results ── */}
-        <div className="xl:col-span-8 space-y-5">
+        <div className="xl:col-span-8 space-y-4 sm:space-y-5">
           {hasInput ? (
             <>
               {/* Decision Indicators */}
               {indicators.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
                   {indicators.map((ind, i) => (
                     <div key={i} className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border ${indicatorColors[ind.type]}`}>
                       {ind.icon}
-                      <span className="text-sm font-medium">{ind.label}</span>
+                      <span className="text-xs sm:text-sm font-medium">{ind.label}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
                 <MetricCard label="Lucro Líquido" value={`R$ ${best.netProfit.toFixed(2)}`} sub={best.subtitle} variant={best.netProfit >= 0 ? "positive" : "negative"} />
-                <MetricCard label="Margem de Lucro" value={`${best.margin.toFixed(2)}%`} sub="Sobre o preço de venda" variant={best.margin >= 0 ? "positive" : "negative"} />
-                <MetricCard label="ROI" value={`${best.roi.toFixed(2)}%`} sub="Retorno sobre investimento" variant={best.roi >= 50 ? "positive" : "default"} />
+                <MetricCard label="Margem de Lucro" value={`${best.margin.toFixed(1)}%`} sub="Sobre o preço de venda" variant={best.margin >= 0 ? "positive" : "negative"} />
+                <MetricCard label="ROI" value={`${best.roi.toFixed(1)}%`} sub="Retorno sobre investimento" variant={best.roi >= 50 ? "positive" : "default"} />
                 <MetricCard label="Break-even" value={`R$ ${best.breakEven.toFixed(2)}`} sub="Preço mínimo sem prejuízo" />
               </div>
 
               {/* ROAS & Ad Engine */}
               {adMetrics && (
-                <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Megaphone className="h-4 w-4 text-primary" />
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Motor de Anúncios e ROAS</h3>
-                  </div>
+                <AccordionSection title="Motor de Anúncios e ROAS" icon={<Megaphone className="h-4 w-4 text-primary" />} defaultOpen>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                      <MetricCard label="Gasto Máximo por Venda" value={`R$ ${adMetrics.maxAdCost.toFixed(2)}`} sub="Máximo sem ter prejuízo" variant="primary" />
+                      <MetricCard label="ROAS Mínimo" value={adMetrics.minROAS.toFixed(2)} sub="Para não ter prejuízo" variant={adMetrics.minROAS <= 3 ? "positive" : "negative"} />
+                    </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <MetricCard label="Gasto Máximo por Venda" value={`R$ ${adMetrics.maxAdCost.toFixed(2)}`} sub="Máximo sem ter prejuízo" variant="primary" />
-                    <MetricCard label="ROAS Mínimo" value={adMetrics.minROAS.toFixed(2)} sub="ROAS mínimo para não ter prejuízo" variant={adMetrics.minROAS <= 3 ? "positive" : "negative"} />
-                  </div>
-
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Simulador de ROAS</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {adMetrics.roasLevels.map(r => (
-                        <div key={r.roas} className={`rounded-xl border p-4 ${r.profitAfterAds >= 0 ? "border-border bg-card" : "border-destructive/30 bg-destructive/5"}`}>
-                          <p className="text-xs text-muted-foreground font-medium">ROAS {r.roas}</p>
-                          <p className="text-sm text-muted-foreground mt-2">Custo do anúncio</p>
-                          <p className="text-base font-bold text-foreground">R$ {r.adCostPerSale.toFixed(2)}</p>
-                          <p className="text-sm text-muted-foreground mt-1">Lucro final</p>
-                          <p className={`text-base font-bold ${r.profitAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {r.profitAfterAds.toFixed(2)}</p>
-                          <p className="text-sm text-muted-foreground mt-1">Margem</p>
-                          <p className={`text-sm font-semibold ${r.marginAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>{r.marginAfterAds.toFixed(1)}%</p>
-                        </div>
-                      ))}
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Simulador de ROAS</h4>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                        {adMetrics.roasLevels.map(r => (
+                          <div key={r.roas} className={`rounded-xl border p-3 sm:p-4 ${r.profitAfterAds >= 0 ? "border-border bg-card" : "border-destructive/30 bg-destructive/5"}`}>
+                            <p className="text-xs text-muted-foreground font-medium">ROAS {r.roas}</p>
+                            <p className="text-[10px] sm:text-sm text-muted-foreground mt-2">Custo</p>
+                            <p className="text-sm sm:text-base font-bold text-foreground">R$ {r.adCostPerSale.toFixed(2)}</p>
+                            <p className="text-[10px] sm:text-sm text-muted-foreground mt-1">Lucro</p>
+                            <p className={`text-sm sm:text-base font-bold ${r.profitAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {r.profitAfterAds.toFixed(2)}</p>
+                            <p className={`text-xs font-semibold mt-1 ${r.marginAfterAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>{r.marginAfterAds.toFixed(1)}%</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
+                </AccordionSection>
               )}
 
               {/* Plan Comparison */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Comparação de Planos</h3>
+              <AccordionSection title="Comparação de Planos" icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {scenarios.map((s, i) => (
-                    <div key={i} className={`bg-card border rounded-xl p-5 relative ${i === bestIdx ? "border-primary ring-1 ring-primary/20" : "border-border"}`}>
+                    <div key={i} className={`bg-muted/10 border rounded-xl p-4 sm:p-5 relative ${i === bestIdx ? "border-primary ring-1 ring-primary/20" : "border-border"}`}>
                       {i === bestIdx && (
                         <span className="absolute -top-3 right-4 bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">Melhor Opção</span>
                       )}
-                      <h4 className="font-bold text-foreground text-lg">{s.label}</h4>
-                      <p className="text-sm text-muted-foreground">{s.subtitle}</p>
+                      <h4 className="font-bold text-foreground">{s.label}</h4>
+                      <p className="text-xs sm:text-sm text-muted-foreground">{s.subtitle}</p>
 
-                      <div className="mt-4 space-y-2 text-sm">
+                      <div className="mt-3 space-y-1.5 text-sm">
                         <div className="flex justify-between"><span className="text-muted-foreground">Preço de Venda</span><span className="font-medium text-foreground">R$ {sale.toFixed(2)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Custo do Produto</span><span className="text-foreground">- R$ {cost.toFixed(2)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Comissão ({(s.commissionRate * 100).toFixed(0)}%)</span><span className="text-foreground">- R$ {s.commission.toFixed(2)}</span></div>
@@ -383,90 +479,86 @@ export default function Precificacao() {
                         <div className="flex justify-between"><span className="text-muted-foreground">Impostos ({tax}%)</span><span className="text-foreground">- R$ {s.taxAmount.toFixed(2)}</span></div>
                         {freteVal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Frete</span><span className="text-foreground">- R$ {freteVal.toFixed(2)}</span></div>}
                         {embalagemVal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Embalagem</span><span className="text-foreground">- R$ {embalagemVal.toFixed(2)}</span></div>}
-                        {outrosVal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Outros Custos</span><span className="text-foreground">- R$ {outrosVal.toFixed(2)}</span></div>}
+                        {outrosVal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Outros</span><span className="text-foreground">- R$ {outrosVal.toFixed(2)}</span></div>}
                       </div>
 
                       <div className="border-t border-border mt-3 pt-3 flex justify-between items-center">
-                        <span className="font-semibold text-foreground">Lucro Líquido</span>
-                        <span className={`text-xl font-bold ${s.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {s.netProfit.toFixed(2)}</span>
+                        <span className="font-semibold text-foreground text-sm">Lucro Líquido</span>
+                        <span className={`text-lg sm:text-xl font-bold ${s.netProfit >= 0 ? "text-emerald-600" : "text-destructive"}`}>R$ {s.netProfit.toFixed(2)}</span>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 mt-3">
                         <div className="bg-muted/30 rounded-lg p-2 text-center">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Margem</p>
-                          <p className={`text-base font-bold ${s.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.margin.toFixed(1)}%</p>
+                          <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Margem</p>
+                          <p className={`text-sm sm:text-base font-bold ${s.margin >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.margin.toFixed(1)}%</p>
                         </div>
                         <div className="bg-muted/30 rounded-lg p-2 text-center">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">ROI</p>
-                          <p className={`text-base font-bold ${s.roi >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.roi.toFixed(1)}%</p>
+                          <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">ROI</p>
+                          <p className={`text-sm sm:text-base font-bold ${s.roi >= 0 ? "text-emerald-600" : "text-destructive"}`}>{s.roi.toFixed(1)}%</p>
                         </div>
                         <div className="bg-muted/30 rounded-lg p-2 text-center">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Break-even</p>
-                          <p className="text-base font-bold text-foreground">R$ {s.breakEven.toFixed(0)}</p>
+                          <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Break-even</p>
+                          <p className="text-sm sm:text-base font-bold text-foreground">R$ {s.breakEven.toFixed(0)}</p>
                         </div>
                       </div>
 
-                      <p className="text-xs text-muted-foreground mt-3">{s.description}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-3">{s.description}</p>
                     </div>
                   ))}
                 </div>
-              </div>
+              </AccordionSection>
 
               {/* Strategic Price Engine */}
-              <div className="bg-card border border-border rounded-xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Target className="h-4 w-4 text-primary" />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preços Estratégicos Recomendados</h3>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-muted/20 border border-border rounded-xl p-4">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Preço Mínimo</p>
-                    <p className="text-xl font-bold text-foreground mt-1">R$ {strategicPrices.breakEven.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Margem 0% (break-even)</p>
+              <AccordionSection title="Preços Estratégicos Recomendados" icon={<Target className="h-4 w-4 text-primary" />} defaultOpen>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                  <div className="bg-muted/20 border border-border rounded-xl p-3 sm:p-4">
+                    <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">Preço Mínimo</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground mt-1">R$ {strategicPrices.breakEven.toFixed(2)}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Break-even</p>
                   </div>
-                  <div className="bg-muted/20 border border-border rounded-xl p-4">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Margem 30%</p>
-                    <p className="text-xl font-bold text-foreground mt-1">R$ {strategicPrices.margin30.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin30 * 0.30).toFixed(2)}</p>
+                  <div className="bg-muted/20 border border-border rounded-xl p-3 sm:p-4">
+                    <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">Margem 30%</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground mt-1">R$ {strategicPrices.margin30.toFixed(2)}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin30 * 0.30).toFixed(2)}</p>
                   </div>
-                  <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Margem 40%</p>
-                    <p className="text-xl font-bold text-primary mt-1">R$ {strategicPrices.margin40.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin40 * 0.40).toFixed(2)}</p>
+                  <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 sm:p-4">
+                    <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">Margem 40%</p>
+                    <p className="text-lg sm:text-xl font-bold text-primary mt-1">R$ {strategicPrices.margin40.toFixed(2)}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin40 * 0.40).toFixed(2)}</p>
                     <div className="flex items-center gap-1 mt-2">
                       <CheckCircle2 className="h-3 w-3 text-primary" />
-                      <span className="text-xs text-primary font-medium">Recomendado</span>
+                      <span className="text-[10px] sm:text-xs text-primary font-medium">Recomendado</span>
                     </div>
                   </div>
-                  <div className="bg-muted/20 border border-border rounded-xl p-4">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Margem 50%</p>
-                    <p className="text-xl font-bold text-foreground mt-1">R$ {strategicPrices.margin50.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin50 * 0.50).toFixed(2)}</p>
+                  <div className="bg-muted/20 border border-border rounded-xl p-3 sm:p-4">
+                    <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">Margem 50%</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground mt-1">R$ {strategicPrices.margin50.toFixed(2)}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Lucro: R$ {(strategicPrices.margin50 * 0.50).toFixed(2)}</p>
                   </div>
                 </div>
-              </div>
+              </AccordionSection>
 
               {/* Charts */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-card border border-border rounded-xl p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div className="bg-card border border-border rounded-xl p-4 sm:p-5">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Distribuição de Custos</h3>
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" paddingAngle={3}>
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={45} outerRadius={75} dataKey="value" paddingAngle={3}>
                         {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie>
                       <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2)}`} />
-                      <Legend iconType="square" iconSize={10} />
+                      <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: "11px" }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="bg-card border border-border rounded-xl p-5">
+                <div className="bg-card border border-border rounded-xl p-4 sm:p-5">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Lucro por Plano</h3>
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={barData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                      <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${v}`} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `R$${v}`} />
                       <Tooltip formatter={(v: number) => `R$ ${v.toFixed(2)}`} />
                       <Bar dataKey="Lucro" fill="hsl(150, 60%, 40%)" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="Custos" fill="hsl(0, 65%, 55%)" radius={[4, 4, 0, 0]} />
@@ -476,7 +568,7 @@ export default function Precificacao() {
               </div>
 
               {/* Analysis */}
-              <div className="bg-card border border-border rounded-xl p-5">
+              <div className="bg-card border border-border rounded-xl p-4 sm:p-5">
                 <div className="flex items-center gap-2 mb-3">
                   <BarChart3 className="h-4 w-4 text-primary" />
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Análise da Precificação</h3>
@@ -484,26 +576,26 @@ export default function Precificacao() {
                 <div className="space-y-2">
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs sm:text-sm text-muted-foreground">
                       O plano {best.label} {best.subtitle} oferece o melhor lucro de R$ {best.netProfit.toFixed(2)} com margem de {best.margin.toFixed(1)}%.
                     </p>
                   </div>
                   {best.margin < 0 && (
                     <div className="flex items-start gap-2">
                       <ShieldAlert className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                      <p className="text-sm text-destructive">Atenção: operação com prejuízo. Aumente o preço ou reduza custos.</p>
+                      <p className="text-xs sm:text-sm text-destructive">Atenção: operação com prejuízo. Aumente o preço ou reduza custos.</p>
                     </div>
                   )}
                   {best.margin >= 0 && best.margin < 10 && (
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                      <p className="text-sm text-muted-foreground">Margem abaixo de 10%. Considere otimizar custos ou reajustar o preço.</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Margem abaixo de 10%. Considere otimizar custos ou reajustar o preço.</p>
                     </div>
                   )}
                   {adMetrics && (
                     <div className="flex items-start gap-2">
                       <Megaphone className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs sm:text-sm text-muted-foreground">
                         Para anúncios pagos, seu ROAS mínimo é {adMetrics.minROAS.toFixed(2)}. Gasto máximo por venda: R$ {adMetrics.maxAdCost.toFixed(2)}.
                       </p>
                     </div>
@@ -512,9 +604,9 @@ export default function Precificacao() {
               </div>
             </>
           ) : (
-            <div className="bg-card border border-border rounded-xl p-12 text-center">
+            <div className="bg-card border border-border rounded-xl p-8 sm:p-12 text-center">
               <Calculator className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">Preencha o custo do produto e o preço de venda para ver os resultados.</p>
+              <p className="text-sm text-muted-foreground">Preencha o custo do produto e o preço de venda para ver os resultados.</p>
             </div>
           )}
         </div>
