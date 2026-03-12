@@ -350,13 +350,44 @@ export default function Precificacao() {
                   <input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
                 </div>
               </div>
+
+              {/* Margin Mode Toggle */}
               <div>
-                <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
-                </div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Modo de Cálculo</label>
+                <ToggleGroup value={useMarginCalc ? "margem" : "preco"} onChange={v => setUseMarginCalc(v === "margem")} options={[
+                  { value: "preco", label: "Definir Preço" },
+                  { value: "margem", label: "Definir Margem" },
+                ]} />
               </div>
+
+              {useMarginCalc ? (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Margem Desejada (%)</label>
+                  <div className="relative">
+                    <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input type="number" value={desiredMargin} onChange={e => setDesiredMargin(e.target.value)} placeholder="Ex: 30" className={`${inputClass} pl-9`} />
+                  </div>
+                  {calculatedSalePrice && (
+                    <div className="mt-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground">Preço de venda calculado</p>
+                      <p className="text-lg font-bold text-primary">R$ {fmt(calculatedSalePrice)}</p>
+                      <p className="text-[11px] text-muted-foreground">Para atingir {desiredMargin}% de margem líquida</p>
+                    </div>
+                  )}
+                  {useMarginCalc && marginTarget > 0 && !calculatedSalePrice && cost > 0 && (
+                    <p className="text-xs text-destructive mt-1">Margem muito alta — impossível calcular preço viável.</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="text-sm text-muted-foreground block mb-1">Alíquota de Impostos (%)</label>
                 <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="7" className={inputClass} />
