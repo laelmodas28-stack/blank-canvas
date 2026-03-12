@@ -11,7 +11,6 @@ import {
   ChevronDown,
   Trophy,
   Search,
-  Menu,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -51,7 +50,6 @@ interface MenuGroupProps {
 }
 
 function MenuGroup({ label, items, collapsed, currentPath }: MenuGroupProps) {
-  const isActive = items.some((i) => currentPath.startsWith(i.url));
   const [open, setOpen] = useState(true);
 
   return (
@@ -59,7 +57,7 @@ function MenuGroup({ label, items, collapsed, currentPath }: MenuGroupProps) {
       {!collapsed && (
         <button
           onClick={() => setOpen(!open)}
-          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-foreground))] transition-colors"
+          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
         >
           <span>{label}</span>
           <ChevronDown className={cn("h-3 w-3 transition-transform", !open && "-rotate-90")} />
@@ -74,10 +72,10 @@ function MenuGroup({ label, items, collapsed, currentPath }: MenuGroupProps) {
               end
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-                "text-[hsl(var(--sidebar-foreground))]/70 hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-foreground))]",
+                "text-muted-foreground hover:bg-accent hover:text-foreground",
                 collapsed && "justify-center px-2"
               )}
-              activeClassName="bg-[hsl(var(--sidebar-accent))] text-[hsl(var(--sidebar-primary))] font-medium"
+              activeClassName="bg-primary/10 text-primary font-medium"
             >
               <item.icon className="h-4 w-4 shrink-0" />
               {!collapsed && <span>{item.title}</span>}
@@ -101,18 +99,18 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
   return (
     <aside
       className={cn(
-        "h-screen flex flex-col bg-[hsl(var(--sidebar-background))] transition-all duration-200 shrink-0",
+        "h-screen flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200 shrink-0",
         collapsed ? "w-16" : "w-64"
       )}
     >
-      <div className="p-4 border-b border-[hsl(var(--sidebar-border))] flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg bg-[hsl(var(--sidebar-primary))] flex items-center justify-center shrink-0">
-          <BarChart3 className="h-4 w-4 text-[hsl(var(--sidebar-primary-foreground))]" />
+      <div className="p-4 border-b border-sidebar-border flex items-center gap-2">
+        <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+          <BarChart3 className="h-4 w-4 text-primary-foreground" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-[hsl(var(--sidebar-foreground))]">SellSmart</h2>
-            <p className="text-xs text-[hsl(var(--sidebar-muted))]">Inteligência de Vendas</p>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">SellSmart</h2>
+            <p className="text-xs text-muted-foreground">Inteligência de Vendas</p>
           </div>
         )}
       </div>
@@ -123,10 +121,10 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
           end
           className={cn(
             "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-            "text-[hsl(var(--sidebar-foreground))]/70 hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-foreground))]",
+            "text-muted-foreground hover:bg-accent hover:text-foreground",
             collapsed && "justify-center px-2"
           )}
-          activeClassName="bg-[hsl(var(--sidebar-accent))] text-[hsl(var(--sidebar-primary))] font-medium"
+          activeClassName="bg-primary/10 text-primary font-medium"
         >
           <LayoutDashboard className="h-4 w-4 shrink-0" />
           {!collapsed && <span>Dashboard</span>}
@@ -139,12 +137,12 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         <MenuGroup label="Configurações" items={configItems} collapsed={collapsed} currentPath={currentPath} />
       </nav>
 
-      <div className="p-3 border-t border-[hsl(var(--sidebar-border))]">
+      <div className="p-3 border-t border-sidebar-border">
         <div className={cn("flex items-center gap-3 px-2", collapsed && "justify-center px-0")}>
-          <div className="h-8 w-8 rounded-full bg-[hsl(var(--sidebar-accent))] flex items-center justify-center shrink-0">
-            <User className="h-4 w-4 text-[hsl(var(--sidebar-foreground))]" />
+          <div className="h-8 w-8 rounded-full bg-accent flex items-center justify-center shrink-0">
+            <User className="h-4 w-4 text-foreground" />
           </div>
-          {!collapsed && <p className="text-xs text-[hsl(var(--sidebar-muted))]">Usuário</p>}
+          {!collapsed && <p className="text-xs text-muted-foreground">Usuário</p>}
         </div>
       </div>
     </aside>
