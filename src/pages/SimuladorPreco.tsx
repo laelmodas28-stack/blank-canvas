@@ -2,11 +2,18 @@ import { TrendingUp, DollarSign, Target, CheckCircle2 } from "lucide-react";
 import { useState, useMemo } from "react";
 
 type Platform = "shopee" | "mercadolivre";
+type SellerType = "cpf" | "cnpj";
 
 const SHOPEE_COMMISSION_CAP = 105;
 
-function getShopeeBaseFees(price: number) {
+function getShopeeBaseFees(price: number, sellerType: SellerType) {
   if (price < 8) return { commissionRate: 0.50, fixedFee: 0 };
+  if (sellerType === "cpf") {
+    if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 7 };
+    if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 7 };
+    if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 7 };
+    return { commissionRate: 0.14, fixedFee: 7 };
+  }
   if (price <= 79.99) return { commissionRate: 0.20, fixedFee: 4 };
   if (price <= 99.99) return { commissionRate: 0.14, fixedFee: 16 };
   if (price <= 199.99) return { commissionRate: 0.14, fixedFee: 20 };
