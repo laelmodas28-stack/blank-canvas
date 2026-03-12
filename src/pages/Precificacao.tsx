@@ -140,10 +140,36 @@ export default function Precificacao() {
   const [costPrice, setCostPrice] = useState("10");
   const [salePrice, setSalePrice] = useState("29.90");
   const [taxRate, setTaxRate] = useState("7");
+  const [desiredMargin, setDesiredMargin] = useState("");
+  const [useMarginCalc, setUseMarginCalc] = useState(false);
 
   const cost = parseFloat(costPrice) || 0;
-  const sale = parseFloat(salePrice) || 0;
   const tax = parseFloat(taxRate) || 0;
+  const marginTarget = parseFloat(desiredMargin) || 0;
+
+  // Calculate ideal price from margin if enabled
+  const calculatedSalePrice = useMemo(() => {
+    if (!useMarginCalc || cost <= 0 || marginTarget <= 0 || marginTarget >= 100) return null;
+    // We need: profit / salePrice = marginTarget/100
+    // profit = salePrice - cost - commission - fixedFee - tax
+    // salePrice - cost - salePrice*commRate - fixedFee - salePrice*taxRate/100 = salePrice * marginTarget/100
+    // For iterative approach (commission depends on price):
+    // Start with estimate and iterate
+    let price = cost / (1 - marginTarget / 100); // initial estimate without fees
+    for (let i = 0; i < 10; i++) {
+      const base = getShopeeBaseFees(price);
+      const rate = platform === "shopee"
+        ? buildCommissionRate(base.commissionRate, freeShipping, shopeeAcelera)
+        : getMercadoLivreFees(mlAdType).commissionRate;
+      const ff = platform === "shopee" ? base.fixedFee : getMercadoLivreFees(mlAdType).fixedFee;
+      const denom = 1 - rate - tax / 100 - marginTarget / 100;
+      if (denom <= 0) return null;
+      price = (cost + ff) / denom;
+    }
+    return Math.round(price * 100) / 100;
+  }, [useMarginCalc, cost, marginTarget, tax, platform, freeShipping, shopeeAcelera, mlAdType]);
+
+  const sale = useMarginCalc && calculatedSalePrice ? calculatedSalePrice : (parseFloat(salePrice) || 0);
   const hasInput = cost > 0 && sale > 0;
 
   const scenarios = useMemo(() => {
@@ -324,13 +350,44 @@ export default function Precificacao() {
                   <input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
                 </div>
               </div>
+
+              {/* Margin Mode Toggle */}
               <div>
-                <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
-                </div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Modo de Cálculo</label>
+                <ToggleGroup value={useMarginCalc ? "margem" : "preco"} onChange={v => setUseMarginCalc(v === "margem")} options={[
+                  { value: "preco", label: "Definir Preço" },
+                  { value: "margem", label: "Definir Margem" },
+                ]} />
               </div>
+
+              {useMarginCalc ? (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Margem Desejada (%)</label>
+                  <div className="relative">
+                    <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input type="number" value={desiredMargin} onChange={e => setDesiredMargin(e.target.value)} placeholder="Ex: 30" className={`${inputClass} pl-9`} />
+                  </div>
+                  {calculatedSalePrice && (
+                    <div className="mt-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground">Preço de venda calculado</p>
+                      <p className="text-lg font-bold text-primary">R$ {fmt(calculatedSalePrice)}</p>
+                      <p className="text-[11px] text-muted-foreground">Para atingir {desiredMargin}% de margem líquida</p>
+                    </div>
+                  )}
+                  {useMarginCalc && marginTarget > 0 && !calculatedSalePrice && cost > 0 && (
+                    <p className="text-xs text-destructive mt-1">Margem muito alta — impossível calcular preço viável.</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Preço de Venda (R$)</label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="text-sm text-muted-foreground block mb-1">Alíquota de Impostos (%)</label>
                 <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="7" className={inputClass} />
