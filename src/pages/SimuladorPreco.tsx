@@ -99,6 +99,15 @@ export default function SimuladorPreco() {
               <option value="mercadolivre">Mercado Livre</option>
             </select>
           </div>
+          {platform === "shopee" && (
+            <div>
+              <label className="text-sm text-muted-foreground block mb-1">Tipo de Vendedor</label>
+              <select value={sellerType} onChange={(e) => setSellerType(e.target.value as SellerType)} className={inputClass}>
+                <option value="cnpj">CNPJ (Taxa fixa variável)</option>
+                <option value="cpf">CPF (Taxa fixa R$ 7,00)</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-sm text-muted-foreground block mb-1">Custo do Produto (R$)</label>
             <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0,00" className={inputClass} />
