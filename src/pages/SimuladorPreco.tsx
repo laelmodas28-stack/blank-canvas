@@ -30,6 +30,7 @@ export default function SimuladorPreco() {
   const [shippingCost, setShippingCost] = useState("");
   const [taxRate, setTaxRate] = useState("7");
   const [platform, setPlatform] = useState<Platform>("shopee");
+  const [sellerType, setSellerType] = useState<SellerType>("cnpj");
 
   const cost = parseFloat(costPrice) || 0;
   const margin = parseFloat(targetMargin) || 0;
