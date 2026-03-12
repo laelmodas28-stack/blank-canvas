@@ -144,8 +144,32 @@ export default function Precificacao() {
   const [useMarginCalc, setUseMarginCalc] = useState(false);
 
   const cost = parseFloat(costPrice) || 0;
-  const sale = parseFloat(salePrice) || 0;
   const tax = parseFloat(taxRate) || 0;
+  const marginTarget = parseFloat(desiredMargin) || 0;
+
+  // Calculate ideal price from margin if enabled
+  const calculatedSalePrice = useMemo(() => {
+    if (!useMarginCalc || cost <= 0 || marginTarget <= 0 || marginTarget >= 100) return null;
+    // We need: profit / salePrice = marginTarget/100
+    // profit = salePrice - cost - commission - fixedFee - tax
+    // salePrice - cost - salePrice*commRate - fixedFee - salePrice*taxRate/100 = salePrice * marginTarget/100
+    // For iterative approach (commission depends on price):
+    // Start with estimate and iterate
+    let price = cost / (1 - marginTarget / 100); // initial estimate without fees
+    for (let i = 0; i < 10; i++) {
+      const base = getShopeeBaseFees(price);
+      const rate = platform === "shopee"
+        ? buildCommissionRate(base.commissionRate, freeShipping, shopeeAcelera)
+        : getMercadoLivreFees(mlAdType).commissionRate;
+      const ff = platform === "shopee" ? base.fixedFee : getMercadoLivreFees(mlAdType).fixedFee;
+      const denom = 1 - rate - tax / 100 - marginTarget / 100;
+      if (denom <= 0) return null;
+      price = (cost + ff) / denom;
+    }
+    return Math.round(price * 100) / 100;
+  }, [useMarginCalc, cost, marginTarget, tax, platform, freeShipping, shopeeAcelera, mlAdType]);
+
+  const sale = useMarginCalc && calculatedSalePrice ? calculatedSalePrice : (parseFloat(salePrice) || 0);
   const hasInput = cost > 0 && sale > 0;
 
   const scenarios = useMemo(() => {
