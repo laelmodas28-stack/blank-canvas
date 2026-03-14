@@ -802,6 +802,9 @@ function hasUsefulProductData(product: any): boolean {
 function enrichProductData(rawProduct: any): any {
   const product = { ...rawProduct };
 
+  product.title = sanitizeProductTitle(firstNonEmptyString(product.title, product.product_title, product.name));
+  product.shopid = toNumber(product.shopid);
+  product.itemid = toNumber(product.itemid);
   product.price = toNumber(product.price);
   product.originalPrice = toNumber(product.originalPrice || product.original_price);
   product.historicalSold = toNumber(product.historicalSold || product.historical_sold);
