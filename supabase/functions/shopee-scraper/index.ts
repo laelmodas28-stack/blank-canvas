@@ -79,6 +79,12 @@ function extractItemFromHtml(html: string): any | null {
   return null;
 }
 
+function hasCriticalProductFields(item: any): boolean {
+  if (!item || (!item.name && !item.title)) return false;
+  const priceRaw = Number(item.price_min ?? item.price ?? 0);
+  return Number.isFinite(priceRaw) && priceRaw > 0;
+}
+
 async function fetchViaScraperApi(targetUrl: string, mode: 'json' | 'html'): Promise<string | null> {
   const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
   if (!scraperApiKey) return null;
