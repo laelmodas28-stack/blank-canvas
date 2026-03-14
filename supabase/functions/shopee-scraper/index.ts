@@ -436,6 +436,11 @@ async function getHistoricalRecords(supabase: any, shopid: string, itemid: strin
 }
 
 async function saveToCache(supabase: any, product: any, score: number) {
+  // Don't cache products with all zero values
+  if (product.price <= 0 && product.historicalSold <= 0 && product.ratingCount <= 0) {
+    console.log('Skipping cache save — all values are zero');
+    return;
+  }
   try {
     await supabase.from('produtos_analisados').insert({
       titulo: product.title, preco: product.price, vendas: product.historicalSold,
