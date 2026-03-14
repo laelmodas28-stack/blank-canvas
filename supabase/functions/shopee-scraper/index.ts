@@ -573,12 +573,22 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 
     const rawPrice = firstPositiveNumber(
       metaPrice,
-      extractNumber([/"price"\s*:\s*(\d+)/, /"price_max"\s*:\s*(\d+)/, /"price_min"\s*:\s*(\d+)/]),
+      extractNumber([
+        /"price"\s*:\s*"([\d.,]+)"/,
+        /"price"\s*:\s*([\d.]+)/,
+        /"price_max"\s*:\s*(\d+)/,
+        /"price_min"\s*:\s*(\d+)/
+      ]),
       toNumber(extract([/R\$\s*([\d.,]+)/]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
-      extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"original_price"\s*:\s*(\d+)/]),
+      extractNumber([
+        /"price_before_discount"\s*:\s*"([\d.,]+)"/,
+        /"price_before_discount"\s*:\s*(\d+)/,
+        /"original_price"\s*:\s*"([\d.,]+)"/,
+        /"original_price"\s*:\s*(\d+)/
+      ]),
       toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
 
@@ -840,13 +850,15 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
   }
 }
 
-async function fetchProductDetails(shopid: string, itemid: string) {
+async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
   const htmlHeaders = {
     ...getHeaders('/'),
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   };
 
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
+  const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
+  const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
   const strategies: { label: string; fn: () => Promise<any> }[] = [
     {
@@ -889,6 +901,18 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       }
     },
     {
+      label: 'HTML scraping (incoming URL)',
+      fn: async () => {
+        if (!incomingUrl) return null;
+        await delay(650 + Math.random() * 650);
+        const response = await fetchWithRetry(incomingUrl, htmlHeaders);
+        if (!response.ok) return null;
+        const html = await response.text();
+        console.log(`Incoming URL HTML size: ${html.length} chars`);
+        return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
       label: 'HTML scraping (product page)',
       fn: async () => {
         await delay(700 + Math.random() * 700);
@@ -906,8 +930,7 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       label: 'HTML scraping (alternate URL)',
       fn: async () => {
         await delay(600 + Math.random() * 500);
-        const altUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(altUrl, htmlHeaders);
+        const response = await fetchWithRetry(alternateProductUrl, htmlHeaders);
         if (!response.ok) return null;
         const html = await response.text();
         return parseProductFromHtml(html, shopid, itemid);
@@ -916,7 +939,7 @@ async function fetchProductDetails(shopid: string, itemid: string) {
     {
       label: 'Headless render (dynamic JS)',
       fn: async () => {
-        const renderedHtml = await fetchRenderedHtmlWithHeadless(canonicalProductUrl);
+        const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
         if (!renderedHtml) return null;
         return parseProductFromHtml(renderedHtml, shopid, itemid);
       }
@@ -940,7 +963,33 @@ async function fetchProductDetails(shopid: string, itemid: string) {
     }
   }
 
-  throw new Error('Unable to extract valid Shopee product data. The page may be temporarily protected by anti-bot controls. Please try again in a few minutes.');
+  // Last fallback: infer title from URL slug (without inventing fake price/sales)
+  if (incomingUrl) {
+    try {
+      const parsed = new URL(incomingUrl);
+      const slugPart = decodeURIComponent(parsed.pathname.split('/').pop() || '')
+        .replace(/-i\.\d+\.\d+.*/i, '')
+        .replace(/[-_]+/g, ' ')
+        .trim();
+
+      if (slugPart && slugPart.length >= 8) {
+        console.log('Using URL slug fallback title only');
+        const minimal = enrichProductData(parseProduct({
+          itemid: Number(itemid),
+          shopid: Number(shopid),
+          name: slugPart,
+          currency: 'BRL',
+        }));
+
+        // Return minimal only if title exists; caller decides if sufficient
+        if (minimal?.title) return minimal;
+      }
+    } catch {
+      // no-op
+    }
+  }
+
+  return null;
 }
 
 async function fetchRelatedProducts(shopid: string, itemid: string, limit = 30) {
@@ -1180,10 +1229,9 @@ Deno.serve(async (req) => {
       const extractedItemid = ids.itemid;
 
       const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
-      let product = cached || await fetchProductDetails(extractedShopid, extractedItemid);
-      let fromCache = Boolean(cached);
-
-      product = enrichProductData(product);
+      const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
+      let product = cached || liveProduct;
+      const fromCache = Boolean(cached);
 
       if (!hasUsefulProductData(product)) {
         return new Response(
@@ -1308,7 +1356,18 @@ Deno.serve(async (req) => {
       }
       const cached2 = await getCachedProduct(supabase, shopid, itemid);
       if (cached2) return new Response(JSON.stringify({ success: true, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
       const product = await fetchProductDetails(shopid, itemid);
+      if (!product || !hasUsefulProductData(product)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       await saveToCache(supabase, product, 0);
       return new Response(JSON.stringify({ success: true, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
