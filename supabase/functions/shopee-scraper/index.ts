@@ -681,6 +681,46 @@ function buildAnalyzeResponseFromCache(cached: any, dataSource: 'cache' | 'cache
   };
 }
 
+function buildBlockedResponse() {
+  const hasScraperApi = Boolean(Deno.env.get('SCRAPER_API_KEY'));
+  return new Response(JSON.stringify({
+    success: false,
+    error: hasScraperApi
+      ? 'Não foi possível obter dados confiáveis do produto no momento. Tente novamente em alguns minutos.'
+      : 'Não foi possível obter dados confiáveis do produto. Configure o secret SCRAPER_API_KEY para contornar o bloqueio da Shopee.',
+    blockedByShopee: true,
+    requiresScraperApi: !hasScraperApi,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function tryRespondFromCache(shopid: string, itemid: string): Promise<Response | null> {
+  const freshCache = await getFromCache(shopid, itemid, 12);
+  if (freshCache) {
+    console.log('Using fresh cache data');
+    const payload = buildAnalyzeResponseFromCache(freshCache, 'cache');
+    const history = await getHistory(shopid, itemid);
+    if (history.length > 0) payload.analysis.history = history;
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const staleCache = await getFromCache(shopid, itemid, 0);
+  if (staleCache) {
+    console.log('Using stale cache data');
+    const payload = buildAnalyzeResponseFromCache(staleCache, 'cache_stale');
+    const history = await getHistory(shopid, itemid);
+    if (history.length > 0) payload.analysis.history = history;
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return null;
+}
+
 // ─── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
