@@ -573,12 +573,22 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 
     const rawPrice = firstPositiveNumber(
       metaPrice,
-      extractNumber([/"price"\s*:\s*(\d+)/, /"price_max"\s*:\s*(\d+)/, /"price_min"\s*:\s*(\d+)/]),
+      extractNumber([
+        /"price"\s*:\s*"([\d.,]+)"/,
+        /"price"\s*:\s*([\d.]+)/,
+        /"price_max"\s*:\s*(\d+)/,
+        /"price_min"\s*:\s*(\d+)/
+      ]),
       toNumber(extract([/R\$\s*([\d.,]+)/]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
-      extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"original_price"\s*:\s*(\d+)/]),
+      extractNumber([
+        /"price_before_discount"\s*:\s*"([\d.,]+)"/,
+        /"price_before_discount"\s*:\s*(\d+)/,
+        /"original_price"\s*:\s*"([\d.,]+)"/,
+        /"original_price"\s*:\s*(\d+)/
+      ]),
       toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
 
