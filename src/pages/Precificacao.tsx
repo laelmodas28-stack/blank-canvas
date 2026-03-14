@@ -1,4 +1,4 @@
-import { Calculator, CheckCircle2, TrendingUp, BarChart3, AlertTriangle, ShieldAlert, Megaphone, DollarSign } from "lucide-react";
+import { Calculator, CheckCircle2, TrendingUp, BarChart3, AlertTriangle, ShieldAlert, Megaphone, DollarSign, Target, ShoppingCart } from "lucide-react";
 import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
@@ -142,6 +142,12 @@ export default function Precificacao() {
   const [taxRate, setTaxRate] = useState("7");
   const [desiredMargin, setDesiredMargin] = useState("");
   const [useMarginCalc, setUseMarginCalc] = useState(false);
+
+  // New projection fields
+  const [marketAvgPrice, setMarketAvgPrice] = useState("");
+  const [targetROAS, setTargetROAS] = useState("");
+  const [desiredROAS, setDesiredROAS] = useState("");
+  const [estimatedSales, setEstimatedSales] = useState("");
 
   const cost = parseFloat(costPrice) || 0;
   const tax = parseFloat(taxRate) || 0;
@@ -394,6 +400,32 @@ export default function Precificacao() {
               </div>
             </div>
           </div>
+
+          {/* Projection Inputs */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Projeção de Vendas</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Preço Médio do Mercado (R$)</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input type="number" value={marketAvgPrice} onChange={e => setMarketAvgPrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Meta de ROAS</label>
+                <input type="number" value={targetROAS} onChange={e => setTargetROAS(e.target.value)} placeholder="Ex: 5" className={inputClass} />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">ROAS Desejado (opcional)</label>
+                <input type="number" value={desiredROAS} onChange={e => setDesiredROAS(e.target.value)} placeholder="Ex: 4" className={inputClass} />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Estimativa de Vendas no Mês</label>
+                <input type="number" value={estimatedSales} onChange={e => setEstimatedSales(e.target.value)} placeholder="Ex: 300" className={inputClass} />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ── RIGHT: Results ── */}
@@ -598,6 +630,103 @@ export default function Precificacao() {
                   )}
                 </div>
               </div>
+
+              {/* ── Projection Section ── */}
+              {(() => {
+                const mktPrice = parseFloat(marketAvgPrice) || 0;
+                const salesQty = parseFloat(estimatedSales) || 0;
+                const roasUsed = parseFloat(desiredROAS) || parseFloat(targetROAS) || 0;
+                const faturamento = Math.round(sale * salesQty * 100) / 100;
+                const investAds = roasUsed > 0 ? Math.round((faturamento / roasUsed) * 100) / 100 : 0;
+                const lucroMensal = Math.round(best.netProfit * salesQty * 100) / 100;
+                const minROASSugerido = best.margin > 0 ? Math.round((1 / (best.margin / 100)) * 100) / 100 : 0;
+
+                const hasPriceComparison = mktPrice > 0 && sale > 0;
+                const hasProjection = salesQty > 0;
+
+                if (!hasPriceComparison && !hasProjection) return null;
+
+                return (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <ShoppingCart className="h-4 w-4 text-primary" />
+                      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Projeção de Vendas e Faturamento</h2>
+                    </div>
+
+                    {/* Price Comparison Alert */}
+                    {hasPriceComparison && (
+                      <div className={`flex items-start gap-2 px-4 py-3 rounded-lg border text-sm mb-4 ${
+                        sale > mktPrice
+                          ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                      }`}>
+                        {sale > mktPrice ? <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> : <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />}
+                        <span>
+                          {sale > mktPrice
+                            ? `Seu preço (R$ ${fmt(sale)}) está acima da média do mercado (R$ ${fmt(mktPrice)}). Isso pode reduzir conversão.`
+                            : `Seu preço (R$ ${fmt(sale)}) está competitivo no mercado (média: R$ ${fmt(mktPrice)}).`}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* ROAS Sugerido */}
+                    {useMarginCalc && best.margin > 0 && (
+                      <div className="flex items-start gap-2 px-4 py-3 rounded-lg border text-sm mb-4 bg-primary/5 text-primary border-primary/20">
+                        <Target className="h-4 w-4 mt-0.5 shrink-0" />
+                        <span>Com esta margem de {fmt(best.margin)}%, o ROAS mínimo recomendado para não ter prejuízo é <strong>{fmt(minROASSugerido)}</strong>.</span>
+                      </div>
+                    )}
+
+                    {/* Monthly Projection Cards */}
+                    {hasProjection && (
+                      <>
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                          <MetricCard
+                            label="Estimativa de Vendas"
+                            value={`${salesQty.toLocaleString("pt-BR")} un.`}
+                            sub="No mês"
+                            icon={<ShoppingCart className="h-4 w-4 text-muted-foreground" />}
+                          />
+                          <MetricCard
+                            label="Faturamento Estimado"
+                            value={`R$ ${faturamento.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`}
+                            sub={`${salesQty} × R$ ${fmt(sale)}`}
+                            variant="primary"
+                            icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+                          />
+                          {roasUsed > 0 && (
+                            <MetricCard
+                              label="Investimento em Anúncios"
+                              value={`R$ ${investAds.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`}
+                              sub={`ROAS ${fmt(roasUsed)}`}
+                              icon={<Megaphone className="h-4 w-4 text-muted-foreground" />}
+                            />
+                          )}
+                          <MetricCard
+                            label="Lucro Líquido Mensal"
+                            value={`R$ ${lucroMensal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`}
+                            sub={`Margem: ${fmt(best.margin)}%`}
+                            variant={lucroMensal >= 0 ? "positive" : "negative"}
+                            icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
+                          />
+                        </div>
+
+                        {/* Net after ads */}
+                        {roasUsed > 0 && (
+                          <div className="mt-3 bg-card border border-border rounded-xl p-4">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Lucro Mensal após Anúncios</span>
+                              <span className={`text-lg font-bold ${lucroMensal - investAds >= 0 ? "text-emerald-600" : "text-destructive"}`}>
+                                R$ {(Math.round((lucroMensal - investAds) * 100) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           ) : (
             <div className="bg-card border border-border rounded-xl p-12 text-center">
