@@ -353,6 +353,12 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
   return null;
 }
 
+// Extract meta tag content from HTML
+function getMetaContent(html: string, name: string): string {
+  const match = html.match(new RegExp(`<meta[^>]*(?:property|name)="${name}"[^>]*content="([^"]*)"`, 'i'));
+  return match?.[1] || '';
+}
+
 // Deep JSON extraction from HTML — prioritizes __INITIAL_STATE__ and __NEXT_DATA__
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
