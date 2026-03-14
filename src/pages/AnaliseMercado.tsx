@@ -26,10 +26,16 @@ interface AnalysisExtended {
   classification: { label: string; level: string };
   salesMetrics: { listingAgeDays: number; salesPerDay: number; salesLast30: number; salesLast7: number };
   sentiment: { positive: number; neutral: number; negative: number };
-  sellerInfo: { name: string; location: string; rating: number; followers: number; responseRate: number; isPreferred?: boolean };
+  sellerInfo: { name: string; location: string; rating: number; followers: number; responseRate: number; status?: string; isPreferred?: boolean };
   revenue?: RevenueData;
   demandScore?: number;
   history?: HistoryEntry[];
+  insights?: {
+    demandLevel?: string;
+    competitionLevel?: string;
+    number_of_competing_listings?: number;
+    average_market_price?: number;
+  };
 }
 
 function ScoreRing({ score, size = 80, label }: { score: number; size?: number; label?: string }) {
