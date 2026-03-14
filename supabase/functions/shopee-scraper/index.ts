@@ -1348,19 +1348,46 @@ function getCompetitionLevel(count: number): 'high' | 'medium' | 'low' {
   return 'low';
 }
 
+function isValidIdSegment(value: string): boolean {
+  return /^\d{5,20}$/.test(value) && Number(value) > 0;
+}
+
 function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | null {
-  if (!rawUrl) return null;
-  const patterns = [/i\.(\d+)\.(\d+)/, /shopid=(\d+).*itemid=(\d+)/, /itemid=(\d+).*shopid=(\d+)/];
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
 
-  for (const pattern of patterns) {
-    const match = rawUrl.match(pattern);
-    if (!match) continue;
+  const candidates = [rawUrl.trim()];
+  try {
+    const parsed = new URL(rawUrl.trim());
+    candidates.push(parsed.pathname);
+    candidates.push(`${parsed.pathname}${parsed.search}`);
 
-    if (pattern.source.startsWith('itemid=')) {
-      return { shopid: match[2], itemid: match[1] };
+    const qShopid = parsed.searchParams.get('shopid') || parsed.searchParams.get('shop_id');
+    const qItemid = parsed.searchParams.get('itemid') || parsed.searchParams.get('item_id');
+    if (qShopid && qItemid && isValidIdSegment(qShopid) && isValidIdSegment(qItemid)) {
+      return { shopid: qShopid, itemid: qItemid };
     }
+  } catch {
+    // Ignore URL parse errors and continue with regex extraction.
+  }
 
-    return { shopid: match[1], itemid: match[2] };
+  const patterns = [
+    /(?:^|[^\w])-?i\.(\d+)\.(\d+)(?:[/?#&._-]|$)/i,
+    /shopid=(\d+).*itemid=(\d+)/i,
+    /itemid=(\d+).*shopid=(\d+)/i,
+  ];
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const match = candidate.match(pattern);
+      if (!match) continue;
+
+      const shopid = pattern.source.startsWith('itemid=') ? match[2] : match[1];
+      const itemid = pattern.source.startsWith('itemid=') ? match[1] : match[2];
+
+      if (isValidIdSegment(shopid) && isValidIdSegment(itemid)) {
+        return { shopid, itemid };
+      }
+    }
   }
 
   return null;
