@@ -702,15 +702,18 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
   }
 
   // 2) window.* JSON assignments with balanced-brace extraction
+  const windowAssignmentPatterns = [
+    /window\.__NEXT_DATA__\s*=/g,
+    /window\.NEXT_DATA\s*=/g,
+    /window\.__INITIAL_STATE__\s*=/g,
+    /window\.INITIAL_STATE\s*=/g,
+    /window\.__PRELOADED_STATE__\s*=/g,
+    /window\.PRELOADED_STATE\s*=/g,
+  ];
+
   jsonBlocks.push(
-    ...extractJsonObjectsAfterAssignments(html, [
-      /window\.__NEXT_DATA__\s*=/g,
-      /window\.NEXT_DATA\s*=/g,
-      /window\.__INITIAL_STATE__\s*=/g,
-      /window\.INITIAL_STATE\s*=/g,
-      /window\.__PRELOADED_STATE__\s*=/g,
-      /window\.PRELOADED_STATE\s*=/g,
-    ])
+    ...extractJsonObjectsAfterAssignments(html, windowAssignmentPatterns),
+    ...extractJsonFromJsonParseAssignments(html, windowAssignmentPatterns),
   );
 
   for (const block of jsonBlocks.slice(0, 6)) {
