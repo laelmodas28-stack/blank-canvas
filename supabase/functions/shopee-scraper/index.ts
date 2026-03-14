@@ -15,22 +15,28 @@ function extractIds(url: string): { shopid: string; itemid: string } | null {
 
 // ─── STEP 2: FETCH FROM SHOPEE API ─────────────────────────────────────────────
 
-const API_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-  'Referer': 'https://shopee.com.br/',
-  'Origin': 'https://shopee.com.br',
-  'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
-  'Sec-Ch-Ua-Mobile': '?0',
-  'Sec-Ch-Ua-Platform': '"Windows"',
-  'Sec-Fetch-Dest': 'empty',
-  'Sec-Fetch-Mode': 'cors',
-  'Sec-Fetch-Site': 'same-origin',
-  'X-Shopee-Language': 'pt-BR',
-  'X-Requested-With': 'XMLHttpRequest',
-  'X-API-SOURCE': 'pc',
-};
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36',
+];
+
+function getApiHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+  return {
+    'User-Agent': userAgent,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://shopee.com.br/',
+    'Origin': 'https://shopee.com.br',
+    'X-Shopee-Language': 'pt-BR',
+    'X-Requested-With': 'XMLHttpRequest',
+    'X-API-SOURCE': 'pc',
+    'af-ac-enc-dat': 'null',
+    ...extra,
+  };
+}
 
 async function fetchWithTimeout(url: string, headers: Record<string, string>, timeoutMs = 10000): Promise<Response> {
   const controller = new AbortController();
@@ -42,36 +48,116 @@ async function fetchWithTimeout(url: string, headers: Record<string, string>, ti
   }
 }
 
+function extractItemFromEnvelope(payload: any): any | null {
+  const item = payload?.data?.item || payload?.item || payload?.data || null;
+  if (!item) return null;
+  if (item.error === 90309999 || payload?.error === 90309999) return null;
+  if (!item.name && !item.title && !item.itemid && !item.item_id) return null;
+  return item;
+}
+
+function extractItemFromHtml(html: string): any | null {
+  const patterns = [
+    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});?\s*(?:<\/script>|$)/,
+    /window\.__NEXT_DATA__\s*=\s*(\{[\s\S]*?\});?\s*(?:<\/script>|$)/,
+    /"item"\s*:\s*(\{[\s\S]*?"name"[\s\S]*?\})\s*[,}]/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match) continue;
+
+    try {
+      const parsed = JSON.parse(match[1]);
+      const item = extractItemFromEnvelope(parsed) || parsed?.props?.pageProps?.item || parsed;
+      if (item && (item.name || item.title)) return item;
+    } catch {
+      // continue trying
+    }
+  }
+
+  return null;
+}
+
+async function fetchViaScraperApi(targetUrl: string, mode: 'json' | 'html'): Promise<string | null> {
+  const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
+  if (!scraperApiKey) return null;
+
+  const params = new URLSearchParams({
+    api_key: scraperApiKey,
+    url: targetUrl,
+    country_code: 'br',
+    keep_headers: 'true',
+  });
+
+  if (mode === 'html') {
+    params.set('render', 'true');
+    params.set('wait_for_selector', 'body');
+  }
+
+  const scraperUrl = `https://api.scraperapi.com/?${params.toString()}`;
+
+  try {
+    const res = await fetchWithTimeout(scraperUrl, { 'Accept': mode === 'json' ? 'application/json,*/*' : 'text/html,*/*' }, 20000);
+    if (!res.ok) {
+      await res.text();
+      return null;
+    }
+    return await res.text();
+  } catch (err: any) {
+    console.log(`ScraperAPI ${mode} failed: ${err.message}`);
+    return null;
+  }
+}
+
 async function fetchShopeeApi(shopid: string, itemid: string): Promise<any> {
-  // Try multiple API endpoints in order
   const endpoints = [
     `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
     `https://shopee.com.br/api/v4/pdp/get_pc?shop_id=${shopid}&item_id=${itemid}`,
     `https://shopee.com.br/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
   ];
 
-  // Try direct calls first
   for (const endpoint of endpoints) {
     try {
       console.log(`Trying direct: ${endpoint}`);
-      const res = await fetchWithTimeout(endpoint, API_HEADERS, 8000);
-      if (res.ok) {
-        const json = await res.json();
-        const item = json?.data?.item || json?.item || json?.data;
-        if (item && (item.name || item.title || item.itemid || item.item_id)) {
-          console.log(`Success: direct API call`);
-          return item;
-        }
-      } else {
+      const res = await fetchWithTimeout(endpoint, getApiHeaders(), 9000);
+      const text = await res.text();
+      if (!res.ok) {
         console.log(`Direct returned ${res.status}`);
-        await res.text(); // consume body
+        continue;
+      }
+
+      const json = JSON.parse(text);
+      const item = extractItemFromEnvelope(json);
+      if (item) {
+        console.log('Success: direct API call');
+        return item;
+      }
+
+      if (json?.error === 90309999) {
+        console.log('Direct API blocked with error 90309999');
       }
     } catch (e: any) {
       console.log(`Direct failed: ${e.message}`);
     }
   }
 
-  // Try via CORS proxies
+  for (const endpoint of endpoints) {
+    try {
+      const scraperJson = await fetchViaScraperApi(endpoint, 'json');
+      if (!scraperJson) continue;
+
+      const json = JSON.parse(scraperJson);
+      const item = extractItemFromEnvelope(json);
+      if (item) {
+        console.log('Success: API via ScraperAPI');
+        return item;
+      }
+    } catch {
+      // continue
+    }
+  }
+
   const proxies = [
     (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
     (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -79,89 +165,94 @@ async function fetchShopeeApi(shopid: string, itemid: string): Promise<any> {
   ];
 
   for (const makeProxy of proxies) {
-    for (const endpoint of endpoints.slice(0, 1)) { // Only try main endpoint via proxy
-      try {
-        const proxyUrl = makeProxy(endpoint);
-        console.log(`Trying proxy: ${proxyUrl.substring(0, 60)}...`);
-        const res = await fetchWithTimeout(proxyUrl, { 'Accept': 'application/json' }, 12000);
-        if (res.ok) {
-          const text = await res.text();
-          try {
-            const json = JSON.parse(text);
-            const item = json?.data?.item || json?.item || json?.data;
-            if (item && (item.name || item.title)) {
-              console.log(`Success via proxy`);
-              return item;
-            }
-          } catch {
-            // Not JSON, try to find JSON in response
-            const jsonMatch = text.match(/\{[\s\S]*"item"[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              const item = parsed?.data?.item || parsed?.item || parsed?.data;
-              if (item) return item;
-            }
-          }
-        } else {
-          console.log(`Proxy returned ${res.status}`);
-          await res.text();
-        }
-      } catch (e: any) {
-        console.log(`Proxy failed: ${e.message}`);
+    const endpoint = endpoints[0];
+    try {
+      const proxyUrl = makeProxy(endpoint);
+      console.log(`Trying proxy: ${proxyUrl.substring(0, 60)}...`);
+      const res = await fetchWithTimeout(proxyUrl, { 'Accept': 'application/json,*/*' }, 12000);
+      if (!res.ok) {
+        console.log(`Proxy returned ${res.status}`);
+        await res.text();
+        continue;
       }
+
+      const text = await res.text();
+      const json = JSON.parse(text);
+      const item = extractItemFromEnvelope(json);
+      if (item) {
+        console.log('Success via proxy');
+        return item;
+      }
+    } catch (e: any) {
+      console.log(`Proxy failed: ${e.message}`);
     }
   }
 
-  // Try HTML page scraping as last resort to extract embedded JSON data
   try {
     console.log('Trying HTML scrape for embedded JSON...');
     const htmlUrl = `https://shopee.com.br/product-i.${shopid}.${itemid}`;
-    const htmlHeaders = {
-      ...API_HEADERS,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-    };
-    
-    // Try via proxy since direct HTML also gets blocked
+
+    const directHtml = await fetchWithTimeout(
+      htmlUrl,
+      getApiHeaders({
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      }),
+      12000,
+    );
+
+    if (directHtml.ok) {
+      const html = await directHtml.text();
+      const item = extractItemFromHtml(html);
+      if (item) {
+        console.log('Success: extracted from direct HTML');
+        return item;
+      }
+
+      const metaItem = extractFromMetaTags(html, shopid, itemid);
+      if (metaItem && metaItem.name) {
+        console.log('Success: extracted from direct meta tags');
+        return metaItem;
+      }
+    } else {
+      await directHtml.text();
+    }
+
+    const scraperHtml = await fetchViaScraperApi(htmlUrl, 'html');
+    if (scraperHtml) {
+      const item = extractItemFromHtml(scraperHtml);
+      if (item) {
+        console.log('Success: extracted from ScraperAPI HTML');
+        return item;
+      }
+
+      const metaItem = extractFromMetaTags(scraperHtml, shopid, itemid);
+      if (metaItem && metaItem.name) {
+        console.log('Success: extracted from ScraperAPI meta tags');
+        return metaItem;
+      }
+    }
+
     for (const makeProxy of proxies) {
       try {
         const proxyUrl = makeProxy(htmlUrl);
         const res = await fetchWithTimeout(proxyUrl, { 'Accept': 'text/html,*/*' }, 12000);
-        if (res.ok) {
-          const html = await res.text();
-          console.log(`HTML size: ${html.length} chars`);
-          
-          // Look for JSON data embedded in scripts
-          const patterns = [
-            /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});?\s*(?:<\/script>|$)/,
-            /window\.__NEXT_DATA__\s*=\s*(\{[\s\S]*?\});?\s*(?:<\/script>|$)/,
-            /"item"\s*:\s*(\{[\s\S]*?"name"[\s\S]*?\})\s*[,}]/,
-          ];
-          
-          for (const pattern of patterns) {
-            const match = html.match(pattern);
-            if (match) {
-              try {
-                const data = JSON.parse(match[1]);
-                const item = data?.item || data?.props?.pageProps?.item || data;
-                if (item && (item.name || item.title)) {
-                  console.log('Success: extracted from HTML embedded JSON');
-                  return item;
-                }
-              } catch { /* continue */ }
-            }
-          }
-
-          // Try to extract from meta tags + ld+json
-          const metaItem = extractFromMetaTags(html, shopid, itemid);
-          if (metaItem && metaItem.name) {
-            console.log('Success: extracted from meta tags');
-            return metaItem;
-          }
-        } else {
+        if (!res.ok) {
           await res.text();
+          continue;
+        }
+
+        const html = await res.text();
+        console.log(`HTML size: ${html.length} chars`);
+        const item = extractItemFromHtml(html);
+        if (item) {
+          console.log('Success: extracted from HTML proxy');
+          return item;
+        }
+
+        const metaItem = extractFromMetaTags(html, shopid, itemid);
+        if (metaItem && metaItem.name) {
+          console.log('Success: extracted from proxy meta tags');
+          return metaItem;
         }
       } catch (e: any) {
         console.log(`HTML proxy failed: ${e.message}`);
