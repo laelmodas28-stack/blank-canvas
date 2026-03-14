@@ -38,14 +38,97 @@ function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function convertPrice(raw: number): number {
-  if (raw <= 0) return 0;
-  // Shopee stores prices in micro-units (price * 100000)
-  if (raw >= 1000000) return raw / 100000;
-  // Some endpoints use cents (price * 100)
-  if (raw >= 10000) return raw / 100;
-  // Already in real value
-  return raw;
+function convertPrice(rawValue: unknown): number {
+  const raw = typeof rawValue === 'string' ? Number(rawValue) : Number(rawValue || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+
+  // Shopee usually stores BRL prices in micro-units (×100000)
+  if (raw >= 100000) return Math.round((raw / 100000) * 100) / 100;
+
+  // Some responses use cents (×100)
+  if (Number.isInteger(raw) && raw >= 100) return Math.round((raw / 100) * 100) / 100;
+
+  // Already normalized
+  return Math.round(raw * 100) / 100;
+}
+
+function toNumber(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[^\d.,-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function firstPositiveNumber(...values: unknown[]): number {
+  for (const value of values) {
+    const num = toNumber(value);
+    if (num > 0) return num;
+  }
+  return 0;
+}
+
+function sumVariationStock(models: any[] | undefined): number {
+  if (!Array.isArray(models) || models.length === 0) return 0;
+  return models.reduce((acc, model) => {
+    const value = firstPositiveNumber(model?.stock, model?.normal_stock, model?.current_stock, model?.extinfo?.stock);
+    return acc + value;
+  }, 0);
+}
+
+function normalizeImage(image: unknown): string {
+  if (typeof image !== 'string' || !image) return '';
+  if (image.startsWith('http://') || image.startsWith('https://')) return image;
+  return `https://down-br.img.susercontent.com/file/${image}`;
+}
+
+function getSellerStatus(item: any): 'Preferred Seller' | 'Official Store' | 'Normal Seller' {
+  const isOfficial = Boolean(
+    item?.is_official_shop ||
+    item?.official_shop ||
+    item?.shop_info?.is_official_shop ||
+    item?.shop_detailed?.is_official_shop ||
+    item?.shop_is_official
+  );
+
+  if (isOfficial) return 'Official Store';
+
+  const isPreferred = Boolean(
+    item?.is_preferred_plus_seller ||
+    item?.is_preferred_seller ||
+    item?.shop_info?.is_preferred_shop ||
+    item?.shop_detailed?.is_preferred_plus_seller ||
+    item?.badge_icon_type === 1 ||
+    item?.shopee_verified
+  );
+
+  return isPreferred ? 'Preferred Seller' : 'Normal Seller';
+}
+
+function extractCategory(item: any): string {
+  if (Array.isArray(item?.categories) && item.categories.length > 0) {
+    const names = item.categories
+      .map((cat: any) => firstNonEmptyString(cat?.display_name, cat?.name))
+      .filter(Boolean);
+    if (names.length > 0) return names.join(' > ');
+  }
+
+  return firstNonEmptyString(
+    item?.catid?.toString(),
+    item?.category,
+    item?.category_name,
+    item?.item_category?.display_name,
+  );
 }
 
 // Validate a price looks reasonable (BRL)
@@ -77,41 +160,95 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
 }
 
 function parseProduct(item: any) {
-  const ctime = item.ctime || item.cmt_time || 0;
-  const price = convertPrice(item.price || item.price_max || 0);
-  const priceMin = convertPrice(item.price_min || item.price || 0);
-  const priceMax = convertPrice(item.price_max || item.price || 0);
-  const originalPrice = convertPrice(item.price_before_discount || item.original_price || 0);
-  const discount = originalPrice > 0 && price > 0 && originalPrice > price
-    ? Math.round(((originalPrice - price) / originalPrice) * 100)
-    : (item.raw_discount || item.discount || 0);
+  const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
+
+  const rawPrice = firstPositiveNumber(item?.price, item?.price_min, item?.price_max, item?.current_price);
+  const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price, item?.price_max);
+  const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price, item?.price_min);
+  const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.original_price, item?.price_before_discount_min);
+
+  const price = convertPrice(rawPrice);
+  const priceMin = convertPrice(rawPriceMin || rawPrice);
+  const priceMax = convertPrice(rawPriceMax || rawPrice);
+  const originalPrice = convertPrice(rawOriginalPrice);
+
+  const ratingCountArray = Array.isArray(item?.item_rating?.rating_count)
+    ? item.item_rating.rating_count
+    : (Array.isArray(item?.rating_count) ? item.rating_count : []);
+
+  const reviewCount = Math.max(
+    firstPositiveNumber(item?.cmt_count, item?.review_count, item?.comment_count, item?.rating_count),
+    toNumber(ratingCountArray[0])
+  );
+
+  const ratingAvg = firstPositiveNumber(item?.item_rating?.rating_star, item?.rating_star, item?.rating_average, item?.rating_avg);
+
+  const variationsStock = sumVariationStock(item?.models || item?.variations || item?.model_list);
+  const stockAvailable = Math.max(firstPositiveNumber(item?.stock, item?.normal_stock, item?.current_stock), variationsStock);
+
+  const historicalSold = firstPositiveNumber(item?.historical_sold, item?.sold, item?.sold_count, item?.item_sold, item?.sold_quantity);
+  const likedCount = firstPositiveNumber(item?.liked_count, item?.liked, item?.favorite_count);
+
+  const shopName = firstNonEmptyString(item?.shop_name, item?.shop_info?.shop_name, item?.shop_detailed?.name, item?.shop_info?.name);
+  const shopLocation = firstNonEmptyString(item?.shop_location, item?.shop_info?.shop_location, item?.shop_detailed?.shop_location, item?.shop?.location);
+  const sellerStatus = getSellerStatus(item);
+
+  const normalizedTitle = firstNonEmptyString(item?.name, item?.title, item?.item_name);
+  const normalizedImage = normalizeImage(firstNonEmptyString(item?.image, item?.images?.[0], item?.thumbnail));
+  const category = extractCategory(item);
+  const currency = firstNonEmptyString(item?.currency, item?.currency_code, item?.item_currency, 'BRL');
+
+  const safePrice = isReasonablePrice(price) ? price : 0;
+  const safeOriginalPrice = isReasonablePrice(originalPrice) ? originalPrice : safePrice;
+
+  const discount = safeOriginalPrice > 0 && safePrice > 0 && safeOriginalPrice > safePrice
+    ? Math.round(((safeOriginalPrice - safePrice) / safeOriginalPrice) * 100)
+    : toNumber(item?.raw_discount || item?.discount || 0);
 
   return {
-    title: item.name || item.title || '',
-    price,
-    priceMin,
-    priceMax,
-    originalPrice: originalPrice > 0 ? originalPrice : price,
+    title: normalizedTitle,
+    product_title: normalizedTitle,
+    price: safePrice,
+    current_price: safePrice,
+    priceMin: priceMin || safePrice,
+    priceMax: priceMax || safePrice,
+    originalPrice: safeOriginalPrice || safePrice,
+    original_price: safeOriginalPrice || safePrice,
+    currency,
     discount,
-    historicalSold: item.historical_sold || item.sold || 0,
-    stock: item.stock || 0,
-    ratingCount: item.cmt_count || item.item_rating?.rating_count?.[0] || 0,
-    ratingAvg: item.item_rating?.rating_star || item.rating_star || 0,
-    category: item.categories?.[item.categories.length - 1]?.display_name || item.catid?.toString() || '',
-    shopName: item.shop_name || item.shop_location || '',
-    shopid: item.shopid,
-    itemid: item.itemid,
-    image: item.image ? `https://down-br.img.susercontent.com/file/${item.image}` : '',
+    historicalSold,
+    historical_sold: historicalSold,
+    stock: stockAvailable,
+    stock_available: stockAvailable,
+    variationsStock,
+    variations_stock: variationsStock,
+    ratingCount: reviewCount,
+    review_count: reviewCount,
+    ratingAvg,
+    rating_star: ratingAvg,
+    category,
+    product_category: category,
+    shopName,
+    shop_name: shopName,
+    shopLocation,
+    shop_location: shopLocation,
+    sellerStatus,
+    seller_status: sellerStatus,
+    preferred_seller: sellerStatus === 'Preferred Seller',
+    shopid: toNumber(item?.shopid),
+    itemid: toNumber(item?.itemid),
+    image: normalizedImage,
+    product_image: normalizedImage,
     ctime,
-    shopRating: item.shop_rating || 0,
-    shopFollowers: item.follower_count || 0,
-    shopResponseRate: item.response_rate || 0,
-    shopLocation: item.shop_location || '',
-    liked: item.liked_count || item.liked || 0,
-    viewCount: item.view_count || 0,
-    ratingDetail: item.item_rating?.rating_count || [],
-    isPreferredSeller: item.shopee_verified || item.is_preferred_plus_seller || item.badge_icon_type === 1 || false,
-    brand: item.brand || '',
+    shopRating: firstPositiveNumber(item?.shop_rating, item?.shop_info?.rating_star, item?.shop_detailed?.rating_star),
+    shopFollowers: firstPositiveNumber(item?.follower_count, item?.shop_info?.follower_count, item?.shop_detailed?.follower_count),
+    shopResponseRate: firstPositiveNumber(item?.response_rate, item?.shop_info?.response_rate, item?.shop_detailed?.response_rate),
+    liked: likedCount,
+    liked_count: likedCount,
+    viewCount: firstPositiveNumber(item?.view_count, item?.click_count),
+    ratingDetail: ratingCountArray,
+    isPreferredSeller: sellerStatus === 'Preferred Seller',
+    brand: firstNonEmptyString(item?.brand, item?.brand_name),
   };
 }
 
