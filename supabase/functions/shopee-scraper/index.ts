@@ -1092,7 +1092,66 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
   }
 }
 
+// Primary: Try Shopee's internal item API (most accurate data source)
+async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<any | null> {
+  const apiUrls = [
+    `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+    `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+  ];
+
+  for (const apiUrl of apiUrls) {
+    try {
+      console.log(`Trying Shopee item API: ${apiUrl}`);
+      const response = await fetchWithRetry(apiUrl, getHeaders(`/product-i.${shopid}.${itemid}`), 2);
+      
+      if (!response.ok) {
+        console.log(`Item API returned ${response.status}`);
+        continue;
+      }
+
+      const json = await response.json();
+      const itemData = json?.data || json?.item || json?.item_basic || json;
+      
+      if (!itemData || typeof itemData !== 'object') continue;
+
+      // Verify we got the right product
+      const gotItemid = toNumber(itemData?.itemid);
+      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
+        console.log(`Item API returned wrong itemid: ${gotItemid} vs ${itemid}`);
+        continue;
+      }
+
+      // Set IDs if missing
+      if (!itemData.itemid) itemData.itemid = Number(itemid);
+      if (!itemData.shopid) itemData.shopid = Number(shopid);
+
+      const parsed = parseProduct(itemData);
+      const result = enrichProductData(parsed);
+
+      if (hasUsefulProductData(result)) {
+        console.log(`Success: Shopee item API — price=${result.price}, priceMin=${result.priceMin}, priceMax=${result.priceMax}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
+        return result;
+      }
+
+      console.log('Item API returned partial data, trying next source');
+    } catch (err) {
+      console.log('Item API failed:', err);
+    }
+
+    await delay(300 + Math.random() * 300);
+  }
+
+  return null;
+}
+
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
+  // 1) Try Shopee's direct item API first (most accurate)
+  const apiResult = await fetchFromShopeeItemApi(shopid, itemid);
+  if (apiResult) return apiResult;
+
+  await delay(500 + Math.random() * 500);
+
+  // 2) HTML scraping fallback
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
@@ -1114,7 +1173,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingCount}`);
         return result;
       }
 
@@ -1124,6 +1183,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     }
   }
 
+  // 3) Headless render fallback
   try {
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
@@ -1131,7 +1191,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
       const result = parsed ? enrichProductData(parsed) : null;
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
         return result;
       }
     }
