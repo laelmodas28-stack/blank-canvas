@@ -252,120 +252,201 @@ function parseProduct(item: any) {
   };
 }
 
-// Deep JSON extraction from HTML — tries multiple patterns including __NEXT_DATA__
-function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
-  // Strategy 1: __NEXT_DATA__ (Shopee uses Next.js)
+function tryParseJson(raw: string): any | null {
+  if (!raw) return null;
   try {
-    const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
-    if (nextDataMatch) {
-      console.log('Found __NEXT_DATA__ block');
-      const nextData = JSON.parse(nextDataMatch[1]);
-      // Navigate common Shopee __NEXT_DATA__ paths
-      const paths = [
-        nextData?.props?.pageProps?.initialState?.itemDetail?.itemData,
-        nextData?.props?.pageProps?.product,
-        nextData?.props?.pageProps?.item,
-        nextData?.props?.pageProps?.data?.item,
-        nextData?.props?.initialState?.item,
-        nextData?.props?.pageProps?.initialData?.item,
-        nextData?.props?.pageProps?.itemDetail,
-      ];
-      for (const item of paths) {
-        if (item && (item.itemid || item.name || item.title || item.price)) {
-          console.log('Extracted product from __NEXT_DATA__');
-          return item;
-        }
-      }
-      // Deep search in __NEXT_DATA__ for any object with itemid
-      const found = deepFindProduct(nextData, parseInt(itemid));
-      if (found) {
-        console.log('Found product via deep search in __NEXT_DATA__');
-        return found;
-      }
-    }
-  } catch (err) {
-    console.log('__NEXT_DATA__ parse failed:', err);
+    const clean = raw
+      .trim()
+      .replace(/^window\.[A-Z0-9_]+\s*=\s*/i, '')
+      .replace(/;\s*$/, '')
+      .replace(/<\/script>$/i, '');
+    return JSON.parse(clean);
+  } catch {
+    return null;
   }
+}
 
-  // Strategy 2: __INITIAL_STATE__
-  try {
-    const initialStateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
-    if (initialStateMatch) {
-      console.log('Found __INITIAL_STATE__ block');
-      const state = JSON.parse(initialStateMatch[1]);
-      const item = state?.item || state?.itemDetail?.item || state?.data?.item;
-      if (item && (item.itemid || item.name)) return item;
+function extractBalancedJson(source: string, startIndex: number): string | null {
+  if (startIndex < 0 || source[startIndex] !== '{') return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < source.length; i++) {
+    const ch = source[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
     }
-  } catch {}
 
-  // Strategy 3: Search for JSON-LD structured data
-  try {
-    const ldMatches = html.matchAll(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g);
-    for (const m of ldMatches) {
-      try {
-        const ld = JSON.parse(m[1]);
-        if (ld['@type'] === 'Product' || ld.name) {
-          console.log('Found JSON-LD product data');
-          return {
-            name: ld.name || '',
-            price: ld.offers?.price ? parseFloat(ld.offers.price) : 0,
-            image: ld.image || '',
-            ratingAvg: ld.aggregateRating?.ratingValue ? parseFloat(ld.aggregateRating.ratingValue) : 0,
-            ratingCount: ld.aggregateRating?.reviewCount ? parseInt(ld.aggregateRating.reviewCount) : 0,
-            shopid: parseInt(shopid),
-            itemid: parseInt(itemid),
-            _fromLd: true,
-          };
-        }
-      } catch {}
+    if (ch === '"') {
+      inString = true;
+      continue;
     }
-  } catch {}
 
-  // Strategy 4: Search for inline script blocks with product data
-  try {
-    const scriptBlocks = html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g);
-    for (const block of scriptBlocks) {
-      const content = block[1];
-      // Look for itemid in the script content
-      if (content.includes(`"itemid":${itemid}`) || content.includes(`"itemid": ${itemid}`)) {
-        // Try to extract the surrounding JSON object
-        const patterns = [
-          new RegExp(`\\{[^{}]*"itemid"\\s*:\\s*${itemid}[^}]*\\}`, 's'),
-          /"item"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
-          /"itemData"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
-        ];
-        for (const p of patterns) {
-          const match = content.match(p);
-          if (match) {
-            try {
-              const obj = JSON.parse(match[1] || match[0]);
-              if (obj.itemid || obj.name || obj.price) {
-                console.log('Found product in inline script block');
-                return obj;
-              }
-            } catch {}
-          }
-        }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIndex, i + 1);
       }
     }
-  } catch {}
+  }
 
   return null;
 }
 
 // Deep search for a product object by itemid in a nested structure
-function deepFindProduct(obj: any, targetItemid: number, depth = 0): any | null {
-  if (depth > 8 || !obj) return null;
-  if (typeof obj !== 'object') return null;
+function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number, depth = 0): any | null {
+  if (depth > 10 || !obj || typeof obj !== 'object') return null;
 
-  if (obj.itemid === targetItemid && (obj.name || obj.title || obj.price)) {
-    return obj;
+  const itemIdCandidate = toNumber(obj?.itemid);
+  const shopIdCandidate = toNumber(obj?.shopid);
+  const looksLikeProduct = Boolean(obj?.name || obj?.title || obj?.price || obj?.historical_sold || obj?.stock);
+
+  if (itemIdCandidate === targetItemid && looksLikeProduct) {
+    if (!targetShopid || !shopIdCandidate || shopIdCandidate === targetShopid) {
+      return obj;
+    }
   }
 
   for (const key of Object.keys(obj)) {
-    const result = deepFindProduct(obj[key], targetItemid, depth + 1);
+    const result = deepFindProduct(obj[key], targetItemid, targetShopid, depth + 1);
     if (result) return result;
   }
+
+  return null;
+}
+
+function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
+  const itemRegex = new RegExp(`"itemid"\\s*:\\s*${itemid}`, 'g');
+  let match: RegExpExecArray | null;
+
+  while ((match = itemRegex.exec(script)) !== null) {
+    let start = script.lastIndexOf('{', match.index);
+
+    while (start >= 0) {
+      const candidateText = extractBalancedJson(script, start);
+      if (!candidateText) break;
+
+      const candidate = tryParseJson(candidateText);
+      if (candidate) {
+        const found = deepFindProduct(candidate, itemid, shopid) || candidate;
+        if (toNumber(found?.itemid) === itemid && (toNumber(found?.shopid) === shopid || toNumber(found?.shopid) === 0)) {
+          return found;
+        }
+      }
+
+      start = script.lastIndexOf('{', start - 1);
+      if (match.index - start > 12000) break;
+    }
+  }
+
+  return null;
+}
+
+// Deep JSON extraction from HTML — prioritizes __INITIAL_STATE__ and __NEXT_DATA__
+function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
+  const parsedShopid = Number(shopid);
+  const parsedItemid = Number(itemid);
+
+  const jsonBlocks: any[] = [];
+
+  // 1) Script tag __NEXT_DATA__
+  for (const match of html.matchAll(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) {
+    const parsed = tryParseJson(match[1]);
+    if (parsed) jsonBlocks.push(parsed);
+  }
+
+  // 2) window.__NEXT_DATA__ assignment
+  for (const match of html.matchAll(/window\.__NEXT_DATA__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
+    const parsed = tryParseJson(match[1]);
+    if (parsed) jsonBlocks.push(parsed);
+  }
+
+  // 3) window.__INITIAL_STATE__ assignment
+  for (const match of html.matchAll(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
+    const parsed = tryParseJson(match[1]);
+    if (parsed) jsonBlocks.push(parsed);
+  }
+
+  // 4) Common preload payload objects
+  for (const match of html.matchAll(/window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
+    const parsed = tryParseJson(match[1]);
+    if (parsed) jsonBlocks.push(parsed);
+  }
+
+  for (const block of jsonBlocks) {
+    const commonPaths = [
+      block?.props?.pageProps?.initialState,
+      block?.props?.pageProps?.item,
+      block?.props?.pageProps?.itemData,
+      block?.props?.pageProps?.itemDetail,
+      block?.props?.pageProps?.product,
+      block?.itemDetail,
+      block?.item,
+      block?.data,
+    ];
+
+    for (const path of commonPaths) {
+      const found = deepFindProduct(path, parsedItemid, parsedShopid);
+      if (found) {
+        console.log('Extracted product from embedded page JSON');
+        return found;
+      }
+    }
+
+    const deepFound = deepFindProduct(block, parsedItemid, parsedShopid);
+    if (deepFound) {
+      console.log('Extracted product via deep JSON traversal');
+      return deepFound;
+    }
+  }
+
+  // 5) JSON-LD fallback (for price/title/image/rating)
+  for (const match of html.matchAll(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
+    const ld = tryParseJson(match[1]);
+    if (!ld) continue;
+
+    const productNode = Array.isArray(ld)
+      ? ld.find((node: any) => node?.['@type'] === 'Product' || node?.name)
+      : (ld?.['@type'] === 'Product' || ld?.name ? ld : null);
+
+    if (productNode) {
+      return {
+        itemid: parsedItemid,
+        shopid: parsedShopid,
+        name: productNode.name || '',
+        image: Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
+        price: productNode.offers?.price ? Number(productNode.offers.price) : 0,
+        original_price: productNode.offers?.highPrice ? Number(productNode.offers.highPrice) : 0,
+        currency: productNode.offers?.priceCurrency || 'BRL',
+        rating_star: productNode.aggregateRating?.ratingValue ? Number(productNode.aggregateRating.ratingValue) : 0,
+        review_count: productNode.aggregateRating?.reviewCount ? Number(productNode.aggregateRating.reviewCount) : 0,
+        _fromLd: true,
+      };
+    }
+  }
+
+  // 6) Inline script extraction by itemid token + balanced JSON parsing
+  for (const scriptMatch of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+    const content = scriptMatch[1];
+    if (!content.includes('itemid')) continue;
+    const extracted = extractObjectContainingItemId(content, parsedItemid, parsedShopid);
+    if (extracted) {
+      console.log('Extracted product from inline script object');
+      return extracted;
+    }
+  }
+
   return null;
 }
 
