@@ -192,25 +192,151 @@ function extractSelectedModelIdFromUrl(rawUrl?: string): number {
   return 0;
 }
 
+function decodeHtmlText(html: string): string {
+  return html
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseHumanCount(raw: string, hasMilToken = false): number {
+  const base = toNumber(raw);
+  if (base <= 0) return 0;
+  const normalizedMil = hasMilToken || /mil/i.test(raw);
+  return Math.round(normalizedMil ? base * 1000 : base);
+}
+
 function extractVisiblePriceRangeFromHtml(html: string): { min: number; max: number } | null {
   if (!html) return null;
 
-  // Most common visible format in Shopee BR: R$24,89 - R$33,90
-  const rangeMatch = html.match(/R\$\s*([\d.]+,[\d]{2})\s*[-–]\s*R\$\s*([\d.]+,[\d]{2})/i);
-  if (rangeMatch) {
+  const text = decodeHtmlText(html);
+
+  const rangePatterns = [
+    /R\$\s*([\d.,]{1,16})\s*(?:-|–|a)\s*R\$\s*([\d.,]{1,16})/i,
+    /([\d.,]{1,16})\s*[-–]\s*R\$\s*([\d.,]{1,16})/i,
+  ];
+
+  for (const pattern of rangePatterns) {
+    const rangeMatch = text.match(pattern);
+    if (!rangeMatch) continue;
+
     const min = toNumber(rangeMatch[1]);
     const max = toNumber(rangeMatch[2]);
-    if (min > 0 && max > 0) return { min: Math.min(min, max), max: Math.max(min, max) };
+    if (min > 0 && max > 0) {
+      return { min: Math.min(min, max), max: Math.max(min, max) };
+    }
   }
 
-  // Single price format: R$24,89
-  const singleMatch = html.match(/R\$\s*([\d.]+,[\d]{2})/i);
-  if (singleMatch) {
-    const value = toNumber(singleMatch[1]);
-    if (value > 0) return { min: value, max: value };
+  const values = Array.from(text.matchAll(/R\$\s*([\d.,]{1,16})/gi))
+    .map((m) => toNumber(m[1]))
+    .filter((n) => n > 0.01 && n < 100000);
+
+  if (values.length === 0) return null;
+
+  // Prefer first visible prices near the product header (usually first 6)
+  const firstSlice = values.slice(0, 6);
+  const bestMin = Math.min(...firstSlice);
+  const bestMax = Math.max(...firstSlice);
+
+  return { min: bestMin, max: bestMax };
+}
+
+function extractVisibleListingSignals(html: string): {
+  priceMin?: number;
+  priceMax?: number;
+  sold?: number;
+  ratingCount?: number;
+  ratingStar?: number;
+  stock?: number;
+} {
+  if (!html) return {};
+
+  const text = decodeHtmlText(html);
+  const priceRange = extractVisiblePriceRangeFromHtml(html);
+
+  const soldMatch = text.match(/([\d.,]+)\s*(mil)?\+?\s*vendidos?/i);
+  const ratingCountMatch = text.match(/([\d.,]+)\s*(mil)?\s*avalia(?:ç|c)[õo]es?/i);
+  const stockMatch = text.match(/(\d[\d.]*)\s*(?:pe[çc]as|itens|unidades)\s+dispon[ií]veis/i);
+
+  let ratingStar = 0;
+  const ratingNearReviews = text.match(/(\d(?:[.,]\d+)?)\s*(?:★|⭐)?\s*([\d.,]+\s*(?:mil)?\s*avalia(?:ç|c)[õo]es?)/i);
+  if (ratingNearReviews) {
+    ratingStar = toNumber(ratingNearReviews[1]);
   }
 
-  return null;
+  return {
+    priceMin: priceRange?.min,
+    priceMax: priceRange?.max,
+    sold: soldMatch ? parseHumanCount(soldMatch[1], Boolean(soldMatch[2])) : undefined,
+    ratingCount: ratingCountMatch ? parseHumanCount(ratingCountMatch[1], Boolean(ratingCountMatch[2])) : undefined,
+    ratingStar: ratingStar > 0 ? ratingStar : undefined,
+    stock: stockMatch ? Math.round(toNumber(stockMatch[1])) : undefined,
+  };
+}
+
+function applyVisibleSignals(parsed: any, signals: ReturnType<typeof extractVisibleListingSignals>) {
+  if (!signals) return parsed;
+
+  if (signals.priceMin && signals.priceMin > 0) {
+    const visibleMin = signals.priceMin;
+    const visibleMax = Math.max(signals.priceMax || visibleMin, visibleMin);
+    const current = toNumber(parsed.price);
+    const mismatch = current <= 0 || Math.abs(current - visibleMin) / visibleMin > 0.2;
+
+    if (mismatch) {
+      parsed.price = visibleMin;
+      parsed.current_price = visibleMin;
+      parsed.priceMin = visibleMin;
+      parsed.priceMax = visibleMax;
+      if (toNumber(parsed.originalPrice) <= 0 || toNumber(parsed.originalPrice) < visibleMin) {
+        parsed.originalPrice = visibleMax;
+        parsed.original_price = visibleMax;
+      }
+    }
+  }
+
+  if (signals.stock && signals.stock > 0) {
+    const currentStock = toNumber(parsed.stock);
+    const stockMismatch = currentStock <= 0 || currentStock < signals.stock * 0.5;
+    if (stockMismatch) {
+      parsed.stock = signals.stock;
+      parsed.stock_available = signals.stock;
+    }
+  }
+
+  if (signals.sold && signals.sold > 0) {
+    const currentSold = toNumber(parsed.historicalSold);
+    const soldMismatch = currentSold <= 0 || Math.abs(currentSold - signals.sold) > Math.max(100, signals.sold * 0.3);
+    if (soldMismatch) {
+      parsed.historicalSold = signals.sold;
+      parsed.historical_sold = signals.sold;
+    }
+  }
+
+  if (signals.ratingCount && signals.ratingCount > 0) {
+    const currentReviews = toNumber(parsed.ratingCount);
+    const reviewMismatch = currentReviews <= 0 || Math.abs(currentReviews - signals.ratingCount) > Math.max(50, signals.ratingCount * 0.35);
+    if (reviewMismatch) {
+      parsed.ratingCount = signals.ratingCount;
+      parsed.review_count = signals.ratingCount;
+    }
+  }
+
+  if (signals.ratingStar && signals.ratingStar > 0) {
+    const currentStar = toNumber(parsed.ratingAvg);
+    const starMismatch = currentStar <= 0 || Math.abs(currentStar - signals.ratingStar) > 0.4;
+    if (starMismatch) {
+      parsed.ratingAvg = signals.ratingStar;
+      parsed.rating_star = signals.ratingStar;
+    }
+  }
+
+  return parsed;
 }
 
 function normalizeImage(image: unknown): string {
@@ -322,41 +448,15 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
   return null;
 }
 
-// Fetch product data through a scraping proxy
+// Fetch product data through public mirror/proxy fallbacks
 async function fetchViaScrapingProxy(url: string): Promise<string | null> {
-  const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
-
-  // 1) ScraperAPI (paid, most reliable, renders JS)
-  if (scraperApiKey) {
-    try {
-      console.log('Trying ScraperAPI proxy...');
-      const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 35000);
-      const response = await fetch(proxyUrl, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        const html = await response.text();
-        if (html && html.length > 1000) {
-          console.log(`ScraperAPI returned ${html.length} chars`);
-          return html;
-        }
-      } else {
-        console.log(`ScraperAPI returned ${response.status}`);
-      }
-    } catch (error) {
-      console.log('ScraperAPI failed:', error);
-    }
-  }
-
-  // 2) Try proxy services for Shopee API
   const idsMatch = url.match(/-i\.(\d+)\.(\d+)/);
   if (!idsMatch) return null;
-  const [, shopid, itemid] = idsMatch;
 
+  const [, shopid, itemid] = idsMatch;
   const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
 
+  // 1) Try public proxy mirrors for Shopee API
   const proxyAttempts = [
     { label: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}` },
     { label: 'corsproxy', url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}` },
@@ -366,7 +466,7 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     try {
       console.log(`Trying ${attempt.label} proxy for API...`);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(attempt.url, { signal: controller.signal });
       clearTimeout(timeout);
 
@@ -384,7 +484,7 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     }
   }
 
-  // 3) Google Cache
+  // 2) Google Cache fallback
   try {
     console.log('Trying Google cache...');
     const gcUrl = `https://webcache.googleusercontent.com/search?q=cache:shopee.com.br/product-i.${shopid}.${itemid}`;
@@ -392,7 +492,10 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     const timeout = setTimeout(() => controller.abort(), 10000);
     const response = await fetch(gcUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html',
+      },
     });
     clearTimeout(timeout);
 
@@ -420,23 +523,28 @@ function parseProduct(item: any) {
   const selectedModelId = firstPositiveNumber(item?._selectedModelId, item?.selected_model_id, item?.display_model_id);
   const variationPriceInfo = getVariationPriceInfo(modelsArray, selectedModelId);
 
-  // For price, prioritize selected model price, then price_min, then model min range.
+  // For price, prefer canonical item price_min/price_max from Shopee payload.
+  // Only fallback to model values when canonical fields are absent.
   const rawPriceMin = firstPositiveNumber(
-    variationPriceInfo.minRaw,
     item?.price_min,
     item?.price_min_before_discount,
+    variationPriceInfo.selectedRaw,
+    variationPriceInfo.minRaw,
+    item?.price,
   );
   const rawPriceMax = firstPositiveNumber(
-    variationPriceInfo.maxRaw,
     item?.price_max,
     item?.price_max_before_discount,
+    variationPriceInfo.maxRaw,
     rawPriceMin,
   );
   const rawPrice = firstPositiveNumber(
     variationPriceInfo.selectedRaw,
-    rawPriceMin,
+    item?.price_min,
     item?.price,
     item?.current_price,
+    variationPriceInfo.minRaw,
+    rawPriceMin,
     rawPriceMax,
   );
   const rawOriginalPrice = firstPositiveNumber(
@@ -946,7 +1054,10 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
     const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
-    const visiblePriceRange = extractVisiblePriceRangeFromHtml(html);
+    const visibleSignals = extractVisibleListingSignals(html);
+    const visiblePriceRange = visibleSignals.priceMin && visibleSignals.priceMin > 0
+      ? { min: visibleSignals.priceMin, max: Math.max(visibleSignals.priceMax || visibleSignals.priceMin, visibleSignals.priceMin) }
+      : null;
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
@@ -979,13 +1090,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       }
 
       if (parsed.title || parsed.price > 0 || parsed.historicalSold > 0 || parsed.ratingCount > 0) {
-        if (visiblePriceRange && visiblePriceRange.min > 0) {
-          parsed.price = visiblePriceRange.min;
-          parsed.current_price = visiblePriceRange.min;
-          parsed.priceMin = visiblePriceRange.min;
-          parsed.priceMax = Math.max(visiblePriceRange.min, visiblePriceRange.max);
-        }
-
+        applyVisibleSignals(parsed, visibleSignals);
         console.log(`JSON extraction successful: title="${parsed.title}", price=${parsed.price}, sold=${parsed.historicalSold}`);
         return parsed;
       }
@@ -1023,15 +1128,19 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
     ));
 
     const rawPrice = firstPositiveNumber(
+      extractNumber([
+        /"price_min"\s*:\s*(\d{4,})/,
+        /"priceMin"\s*:\s*(\d{4,})/,
+        /"price_max"\s*:\s*(\d{4,})/,
+        /"priceMax"\s*:\s*(\d{4,})/,
+        /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d{4,})/,
+        /"price_info"\s*:\s*\{[\s\S]{0,220}?"price"\s*:\s*(\d{4,})/,
+      ]),
+      visiblePriceRange?.min || 0,
       metaPrice,
       extractNumber([
         /"price"\s*:\s*"([\d.,]+)"/,
         /"price"\s*:\s*([\d.]+)/,
-        /"price_max"\s*:\s*(\d+)/,
-        /"price_min"\s*:\s*(\d+)/,
-        /"priceMin"\s*:\s*(\d+)/,
-        /"priceMax"\s*:\s*(\d+)/,
-        /"price_info"\s*:\s*\{[\s\S]{0,180}?"price"\s*:\s*(\d+)/,
       ]),
       toNumber(extract([/R\$\s*([\d.,]+)/, /pre[çc]o[^\d]{0,12}([\d.,]+)/i]))
     );
@@ -1084,12 +1193,6 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
 
     let parsed = parseProduct(fallbackObject);
 
-    // Estimation fallback when Shopee hides exact counts but signals exist
-    if (parsed.historicalSold <= 0 && parsed.ratingCount > 0) {
-      parsed.historicalSold = Math.max(parsed.ratingCount, Math.round(parsed.ratingCount * 1.6));
-      parsed.historical_sold = parsed.historicalSold;
-    }
-
     if (parsed.stock <= 0 && parsed.variationsStock > 0) {
       parsed.stock = parsed.variationsStock;
       parsed.stock_available = parsed.variationsStock;
@@ -1127,25 +1230,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       }
     }
 
-    // Validate/override price using visible page price when available
-    if (visiblePriceRange && visiblePriceRange.min > 0) {
-      const visibleMin = visiblePriceRange.min;
-      const visibleMax = visiblePriceRange.max > 0 ? visiblePriceRange.max : visibleMin;
-      const currentPrice = toNumber(parsed.price);
-      const mismatch = currentPrice > 0 && Math.abs(currentPrice - visibleMin) / visibleMin > 0.35;
-
-      if (mismatch || currentPrice <= 0) {
-        parsed.price = visibleMin;
-        parsed.current_price = visibleMin;
-        parsed.priceMin = visibleMin;
-        parsed.priceMax = Math.max(visibleMin, visibleMax);
-
-        if (toNumber(parsed.originalPrice) <= 0 || toNumber(parsed.originalPrice) < parsed.price) {
-          parsed.originalPrice = parsed.priceMax;
-          parsed.original_price = parsed.priceMax;
-        }
-      }
-    }
+    applyVisibleSignals(parsed, visibleSignals);
 
     if (!hasUsefulProductData(parsed)) {
       return null;
@@ -1194,16 +1279,8 @@ function enrichProductData(rawProduct: any): any {
     product.originalPrice = product.price;
   }
 
-  if (product.historicalSold <= 0 && product.ratingCount > 0) {
-    product.historicalSold = Math.max(product.ratingCount, Math.round(product.ratingCount * 1.6));
-  }
-
   if (product.stock <= 0 && product.variationsStock > 0) {
     product.stock = product.variationsStock;
-  }
-
-  if (product.ratingCount <= 0 && product.historicalSold > 0) {
-    product.ratingCount = Math.max(1, Math.round(product.historicalSold * 0.08));
   }
 
   product.current_price = product.price;
@@ -1483,7 +1560,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
 
   await delay(300 + Math.random() * 300);
 
-  // 2) Scraping proxy fallback (if SCRAPER_API_KEY is configured)
+  // 2) Public mirror/proxy fallback
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
@@ -1854,7 +1931,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'A Shopee está bloqueando o acesso aos dados do produto. Para resolver, configure o secret SCRAPER_API_KEY com uma chave do ScraperAPI (scraperapi.com — plano gratuito disponível com 1000 requests/mês).',
+            error: 'Não foi possível confirmar dados reais do anúncio com precisão; tente novamente com o link completo da variação selecionada (display_model_id) para validar preço, estoque e avaliações.',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
