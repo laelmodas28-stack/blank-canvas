@@ -932,18 +932,19 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
   if (!data || data.length === 0) return null;
 
   const row = data[0];
+  const normalizedTitle = sanitizeProductTitle(row.titulo);
   const price = toNumber(row.preco);
   const sales = toNumber(row.vendas);
   const reviews = toNumber(row.avaliacoes);
 
   // Use cache only when row has valid content
-  if (!row.titulo || (price <= 0 && sales <= 0 && reviews <= 0)) {
+  if (!normalizedTitle || (price <= 0 && sales <= 0 && reviews <= 0)) {
     console.log('Cached row is invalid — skipping cache');
     return null;
   }
 
   return enrichProductData({
-    title: row.titulo,
+    title: normalizedTitle,
     price,
     priceMin: price,
     priceMax: price,
