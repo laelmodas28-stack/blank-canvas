@@ -825,7 +825,7 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
   return null;
 }
 
-function parseProductFromHtml(html: string, shopid: string, itemid: string) {
+function parseProductFromHtml(html: string, shopid: string, itemid: string, selectedModelId = 0) {
   try {
     // 0) Always extract meta tags first — they're the most reliable on Shopee
     const metaTitle = sanitizeProductTitle(getMetaContent(html, 'og:title'));
@@ -834,6 +834,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
     const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
+    const visiblePriceRange = extractVisiblePriceRangeFromHtml(html);
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
@@ -847,7 +848,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       if (!jsonItem.image) jsonItem.image = metaImage;
       if (toNumber(jsonItem.price) <= 0 && metaPrice > 0) jsonItem.price = metaPrice;
 
-      const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid) });
+      const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid), _selectedModelId: selectedModelId });
       
       // Even if JSON extraction got partial data, supplement with meta
       if (parsed.price <= 0 && metaPrice > 0) {
