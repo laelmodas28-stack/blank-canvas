@@ -1854,7 +1854,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Failed to extract Shopee product data',
+            error: 'A Shopee está bloqueando o acesso aos dados do produto. Para resolver, configure o secret SCRAPER_API_KEY com uma chave do ScraperAPI (scraperapi.com — plano gratuito disponível com 1000 requests/mês).',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
