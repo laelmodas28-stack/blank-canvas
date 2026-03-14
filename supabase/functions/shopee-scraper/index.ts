@@ -40,10 +40,17 @@ function delay(ms: number) {
 
 function convertPrice(raw: number): number {
   if (raw <= 0) return 0;
-  // Shopee prices: if > 100000 it's in microcents, otherwise might be cents or real
-  if (raw > 100000) return raw / 100000;
-  if (raw > 1000) return raw / 100;
+  // Shopee stores prices in micro-units (price * 100000)
+  if (raw >= 1000000) return raw / 100000;
+  // Some endpoints use cents (price * 100)
+  if (raw >= 10000) return raw / 100;
+  // Already in real value
   return raw;
+}
+
+// Validate a price looks reasonable (BRL)
+function isReasonablePrice(price: number): boolean {
+  return price > 0.01 && price < 1000000;
 }
 
 async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
