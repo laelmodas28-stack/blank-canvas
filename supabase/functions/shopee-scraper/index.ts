@@ -1560,7 +1560,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
 
   await delay(300 + Math.random() * 300);
 
-  // 2) Scraping proxy fallback (if SCRAPER_API_KEY is configured)
+  // 2) Public mirror/proxy fallback
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
