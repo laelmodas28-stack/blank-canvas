@@ -79,6 +79,8 @@ function sanitizeProductTitle(value: unknown): string {
   if (!cleaned) return '';
   if (/^shopee\s*brasil\b/i.test(cleaned)) return '';
   if (/^ofertas\s+incr[íi]veis/i.test(cleaned)) return '';
+  if (/shopee[_\s-]*domain|captcha|access denied|verifique se voc[êe] [ée] humano/i.test(cleaned)) return '';
+  if (cleaned.length < 8) return '';
 
   return cleaned;
 }
