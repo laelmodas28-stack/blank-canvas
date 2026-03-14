@@ -494,18 +494,52 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
 
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
+    // 0) Always extract meta tags first — they're the most reliable on Shopee
+    const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim();
+    const metaImage = getMetaContent(html, 'og:image');
+    const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
+    const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
+    const metaDescription = getMetaContent(html, 'og:description');
+    const titleTag = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim() || '';
+
+    console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
+
     // 1) JSON-first extraction from embedded objects
     const jsonItem = extractProductFromPageJson(html, shopid, itemid);
     if (jsonItem) {
+      // Supplement JSON data with meta tags
+      if (!jsonItem.name || (jsonItem.name.length < 20 && /[,\/]/.test(jsonItem.name))) {
+        jsonItem.name = metaTitle || titleTag || jsonItem.name;
+      }
+      if (!jsonItem.image) jsonItem.image = metaImage;
+      if (toNumber(jsonItem.price) <= 0 && metaPrice > 0) jsonItem.price = metaPrice;
+
       const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid) });
+      
+      // Even if JSON extraction got partial data, supplement with meta
+      if (parsed.price <= 0 && metaPrice > 0) {
+        parsed.price = metaPrice;
+        parsed.current_price = metaPrice;
+        parsed.priceMin = metaPrice;
+        parsed.priceMax = metaPrice;
+      }
+      if (!parsed.title && metaTitle) {
+        parsed.title = metaTitle;
+        parsed.product_title = metaTitle;
+      }
+      if (!parsed.image && metaImage) {
+        parsed.image = metaImage;
+        parsed.product_image = metaImage;
+      }
+
       if (parsed.title || parsed.price > 0 || parsed.historicalSold > 0 || parsed.ratingCount > 0) {
         console.log(`JSON extraction successful: title="${parsed.title}", price=${parsed.price}, sold=${parsed.historicalSold}`);
         return parsed;
       }
     }
 
-    // 2) Fallback: robust regex + metadata selectors
-    console.log('Falling back to alternative selectors from HTML');
+    // 2) Meta-tag-first fallback with regex supplementation
+    console.log('Falling back to meta tags + regex selectors');
 
     const extract = (patterns: RegExp[]): string => {
       for (const pattern of patterns) {
@@ -520,29 +554,30 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       return raw ? toNumber(raw) : 0;
     };
 
-    const getMetaContent = (name: string) => {
-      const match = html.match(new RegExp(`<meta[^>]*(?:property|name)="${name}"[^>]*content="([^"]*)"`, 'i'));
-      return match?.[1] || '';
-    };
+    // Extract sold count from description text like "X mil vendidos" or "X vendidos"
+    let soldFromDescription = 0;
+    const soldMatch = metaDescription.match(/([\d.,]+)\s*(?:mil\s+)?vendidos?/i);
+    if (soldMatch) {
+      let soldVal = toNumber(soldMatch[1]);
+      if (metaDescription.includes('mil vendidos')) soldVal *= 1000;
+      soldFromDescription = Math.round(soldVal);
+    }
 
     const title = firstNonEmptyString(
-      extract([/"name"\s*:\s*"([^"]{5,})"/, /"title"\s*:\s*"([^"]{5,})"/]),
-      getMetaContent('og:title')?.replace(/\s*\|\s*Shopee Brasil.*$/, ''),
-      (() => {
-        const titleTag = html.match(/<title>([^<]+)<\/title>/i);
-        return titleTag?.[1]?.replace(/\s*\|\s*Shopee Brasil.*$/, '') || '';
-      })(),
+      metaTitle,
+      titleTag,
+      extract([/"name"\s*:\s*"([^"]{10,})"/, /"title"\s*:\s*"([^"]{10,})"/]),
     );
 
     const rawPrice = firstPositiveNumber(
+      metaPrice,
       extractNumber([/"price"\s*:\s*(\d+)/, /"price_max"\s*:\s*(\d+)/, /"price_min"\s*:\s*(\d+)/]),
-      toNumber(getMetaContent('product:price:amount')),
       toNumber(extract([/R\$\s*([\d.,]+)/]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
       extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"original_price"\s*:\s*(\d+)/]),
-      toNumber(getMetaContent('product:original_price:amount'))
+      toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
 
     const fallbackObject = {
@@ -550,22 +585,25 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       itemid: Number(itemid),
       name: title,
       image: firstNonEmptyString(
-        getMetaContent('og:image'),
+        metaImage,
         extract([/"image"\s*:\s*"([^"]+)"/])
       ),
       price: rawPrice,
       original_price: rawOriginalPrice,
       currency: firstNonEmptyString(
-        getMetaContent('product:price:currency'),
+        metaCurrency,
         extract([/"currency"\s*:\s*"([A-Z]{3})"/]),
         'BRL'
       ),
-      historical_sold: extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/]),
+      historical_sold: firstPositiveNumber(
+        soldFromDescription,
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/])
+      ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
       cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
       rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
-      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"shop_location"\s*:\s*"([^"]+)"/]),
+      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/]),
       stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/]),
       ctime: extractNumber([/"ctime"\s*:\s*(\d+)/]),
       brand: extract([/"brand"\s*:\s*"([^"]+)"/]),
