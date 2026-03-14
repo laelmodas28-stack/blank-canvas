@@ -640,6 +640,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 }
 
 function hasUsefulProductData(product: any): boolean {
+  // Accept if we have title + price, or title + any sales/rating data
   return Boolean(product?.title) && (toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0);
 }
 
