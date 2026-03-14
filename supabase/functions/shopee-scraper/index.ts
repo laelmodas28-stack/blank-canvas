@@ -553,7 +553,7 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
     ])
   );
 
-  for (const block of jsonBlocks) {
+  for (const block of jsonBlocks.slice(0, 6)) {
     const commonPaths = [
       block?.props?.pageProps?.initialState,
       block?.props?.pageProps?.item,
