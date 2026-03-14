@@ -673,11 +673,11 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       soldFromDescription = Math.round(soldVal);
     }
 
-    const title = firstNonEmptyString(
+    const title = sanitizeProductTitle(firstNonEmptyString(
       metaTitle,
       titleTag,
       extract([/"name"\s*:\s*"([^"]{10,})"/, /"title"\s*:\s*"([^"]{10,})"/]),
-    );
+    ));
 
     const rawPrice = firstPositiveNumber(
       metaPrice,
@@ -685,17 +685,22 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
         /"price"\s*:\s*"([\d.,]+)"/,
         /"price"\s*:\s*([\d.]+)/,
         /"price_max"\s*:\s*(\d+)/,
-        /"price_min"\s*:\s*(\d+)/
+        /"price_min"\s*:\s*(\d+)/,
+        /"priceMin"\s*:\s*(\d+)/,
+        /"priceMax"\s*:\s*(\d+)/,
+        /"price_info"\s*:\s*\{[\s\S]{0,180}?"price"\s*:\s*(\d+)/,
       ]),
-      toNumber(extract([/R\$\s*([\d.,]+)/]))
+      toNumber(extract([/R\$\s*([\d.,]+)/, /pre[çc]o[^\d]{0,12}([\d.,]+)/i]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
       extractNumber([
         /"price_before_discount"\s*:\s*"([\d.,]+)"/,
         /"price_before_discount"\s*:\s*(\d+)/,
+        /"price_before_discount_min"\s*:\s*(\d+)/,
+        /"price_min_before_discount"\s*:\s*(\d+)/,
         /"original_price"\s*:\s*"([\d.,]+)"/,
-        /"original_price"\s*:\s*(\d+)/
+        /"original_price"\s*:\s*(\d+)/,
       ]),
       toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
@@ -706,25 +711,25 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       name: title,
       image: firstNonEmptyString(
         metaImage,
-        extract([/"image"\s*:\s*"([^"]+)"/])
+        extract([/"image"\s*:\s*"([^"]+)"/]),
       ),
       price: rawPrice,
       original_price: rawOriginalPrice,
       currency: firstNonEmptyString(
         metaCurrency,
         extract([/"currency"\s*:\s*"([A-Z]{3})"/]),
-        'BRL'
+        'BRL',
       ),
       historical_sold: firstPositiveNumber(
         soldFromDescription,
-        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/])
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/, /"sold_count"\s*:\s*(\d+)/]),
       ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
       cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
-      rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
+      rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating_average"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
-      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/]),
-      stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/]),
+      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"location"\s*:\s*"([^"]+)"/]),
+      stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/, /"current_stock"\s*:\s*(\d+)/]),
       ctime: extractNumber([/"ctime"\s*:\s*(\d+)/]),
       brand: extract([/"brand"\s*:\s*"([^"]+)"/]),
       category_name: extract([/"display_name"\s*:\s*"([^"]+)"/, /"category_name"\s*:\s*"([^"]+)"/]),
@@ -733,7 +738,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       is_official_shop: html.includes('official_shop') || html.includes('official-store'),
     };
 
-    const parsed = parseProduct(fallbackObject);
+    let parsed = parseProduct(fallbackObject);
 
     // Estimation fallback when Shopee hides exact counts but signals exist
     if (parsed.historicalSold <= 0 && parsed.ratingCount > 0) {
@@ -746,7 +751,35 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       parsed.stock_available = parsed.variationsStock;
     }
 
-    if (!parsed.title && parsed.price <= 0 && parsed.historicalSold <= 0) {
+    if (!hasUsefulProductData(parsed)) {
+      console.log('Primary selectors returned limited data, retrying with alternative selectors');
+
+      const alternateParsed = parseProduct({
+        ...fallbackObject,
+        name: sanitizeProductTitle(firstNonEmptyString(
+          fallbackObject.name,
+          extract([/"item_name"\s*:\s*"([^"]+)"/, /"product_title"\s*:\s*"([^"]+)"/]),
+        )),
+        price: firstPositiveNumber(
+          fallbackObject.price,
+          extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+        ),
+        historical_sold: firstPositiveNumber(
+          fallbackObject.historical_sold,
+          extractNumber([/"item_sold"\s*:\s*(\d+)/, /"sold_quantity"\s*:\s*(\d+)/]),
+        ),
+        cmt_count: firstPositiveNumber(
+          fallbackObject.cmt_count,
+          extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
+        ),
+      });
+
+      if (hasUsefulProductData(alternateParsed)) {
+        parsed = alternateParsed;
+      }
+    }
+
+    if (!hasUsefulProductData(parsed)) {
       return null;
     }
 
