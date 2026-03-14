@@ -1030,22 +1030,48 @@ function calculateMarketMetrics(products: any[], originalPrice?: number) {
 // Calculate market demand score based on multiple signals
 function calculateMarketDemandScore(product: any, metrics: any, salesMetrics: any): number {
   let score = 0;
-  // Sales velocity weight
   if (salesMetrics.salesPerDay >= 10) score += 30;
   else if (salesMetrics.salesPerDay >= 3) score += 20;
   else if (salesMetrics.salesPerDay >= 1) score += 10;
-  // Total sales volume
   if (product.historicalSold >= 5000) score += 25;
   else if (product.historicalSold >= 1000) score += 20;
   else if (product.historicalSold >= 100) score += 10;
-  // Rating quality
   if (product.ratingAvg >= 4.5 && product.ratingCount >= 50) score += 20;
   else if (product.ratingAvg >= 4.0) score += 10;
-  // View/engagement
   if (product.viewCount > 0) score += 10;
   if (product.liked > 100) score += 15;
   else if (product.liked > 10) score += 5;
   return Math.min(score, 100);
+}
+
+function getDemandLevel(score: number): 'high' | 'medium' | 'low' {
+  if (score >= 70) return 'high';
+  if (score >= 40) return 'medium';
+  return 'low';
+}
+
+function getCompetitionLevel(count: number): 'high' | 'medium' | 'low' {
+  if (count >= 35) return 'high';
+  if (count >= 15) return 'medium';
+  return 'low';
+}
+
+function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | null {
+  if (!rawUrl) return null;
+  const patterns = [/i\.(\d+)\.(\d+)/, /shopid=(\d+).*itemid=(\d+)/, /itemid=(\d+).*shopid=(\d+)/];
+
+  for (const pattern of patterns) {
+    const match = rawUrl.match(pattern);
+    if (!match) continue;
+
+    if (pattern.source.startsWith('itemid=')) {
+      return { shopid: match[2], itemid: match[1] };
+    }
+
+    return { shopid: match[1], itemid: match[2] };
+  }
+
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -1059,10 +1085,10 @@ Deno.serve(async (req) => {
 
     // ── ANALYZE LINK ──
     if (action === 'analyze_link') {
-      const match = url?.match(/i\.(\d+)\.(\d+)/);
-      if (!match) {
+      const ids = extractShopeeIds(url || '');
+      if (!ids) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Link inválido. Use um link de produto da Shopee (ex: https://shopee.com.br/produto-i.123.456)' }),
+          JSON.stringify({ success: false, error: 'Invalid Shopee product link. Expected format: https://shopee.com.br/...-i.<shopid>.<itemid>' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
