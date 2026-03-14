@@ -1546,21 +1546,21 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: false, error: 'shopid e itemid são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       const cached2 = await getCachedProduct(supabase, shopid, itemid);
-      if (cached2) return new Response(JSON.stringify({ success: true, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (cached2) return new Response(JSON.stringify({ success: true, data: cached2, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       const product = await fetchProductDetails(shopid, itemid);
       if (!product || !hasUsefulProductData(product)) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+            error: 'Failed to extract Shopee product data',
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       await saveToCache(supabase, product, 0);
-      return new Response(JSON.stringify({ success: true, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ success: true, data: product, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ success: false, error: 'Ação inválida. Use: analyze_link, search, ou product_details' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
