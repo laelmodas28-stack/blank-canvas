@@ -1931,7 +1931,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'A Shopee está bloqueando o acesso aos dados do produto. Para resolver, configure o secret SCRAPER_API_KEY com uma chave do ScraperAPI (scraperapi.com — plano gratuito disponível com 1000 requests/mês).',
+            error: 'Não foi possível confirmar dados reais do anúncio com precisão; tente novamente com o link completo da variação selecionada (display_model_id) para validar preço, estoque e avaliações.',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
