@@ -350,66 +350,63 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     }
   }
 
-  // 2) Try fetching the Shopee item API through a CORS/proxy service
-  // Extract shopid/itemid from URL to call API through proxy
+  // 2) Try proxy services for Shopee API
   const idsMatch = url.match(/-i\.(\d+)\.(\d+)/);
-  if (idsMatch) {
-    const [, shopid, itemid] = idsMatch;
-    const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
+  if (!idsMatch) return null;
+  const [, shopid, itemid] = idsMatch;
 
-    // Try allorigins proxy (free, no JS rendering but API calls work)
+  const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
+
+  const proxyAttempts = [
+    { label: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}` },
+    { label: 'corsproxy', url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}` },
+  ];
+
+  for (const attempt of proxyAttempts) {
     try {
-      console.log('Trying allorigins proxy for API...');
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
+      console.log(`Trying ${attempt.label} proxy for API...`);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(proxyUrl, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-      });
+      const response = await fetch(attempt.url, { signal: controller.signal });
       clearTimeout(timeout);
 
       if (response.ok) {
         const text = await response.text();
         if (text && text.includes('itemid')) {
-          console.log(`allorigins API proxy returned ${text.length} chars`);
-          // Return as pseudo-HTML with embedded JSON for our parser
+          console.log(`${attempt.label} returned ${text.length} chars`);
           return `<script id="__NEXT_DATA__" type="application/json">${text}</script>`;
         }
       } else {
-        console.log(`allorigins proxy returned ${response.status}`);
+        console.log(`${attempt.label} returned ${response.status}`);
       }
     } catch (error) {
-      console.log('allorigins proxy failed:', error);
+      console.log(`${attempt.label} failed:`, error);
     }
+  }
 
-    // Try corsproxy.io
-    try {
-      console.log('Trying corsproxy for API...');
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(proxyUrl, {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-      clearTimeout(timeout);
+  // 3) Google Cache
+  try {
+    console.log('Trying Google cache...');
+    const gcUrl = `https://webcache.googleusercontent.com/search?q=cache:shopee.com.br/product-i.${shopid}.${itemid}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(gcUrl, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+    });
+    clearTimeout(timeout);
 
-      if (response.ok) {
-        const text = await response.text();
-        if (text && text.includes('itemid')) {
-          console.log(`corsproxy returned ${text.length} chars`);
-          return `<script id="__NEXT_DATA__" type="application/json">${text}</script>`;
-        }
-      } else {
-        console.log(`corsproxy returned ${response.status}`);
+    if (response.ok) {
+      const html = await response.text();
+      if (html && html.length > 1000 && (html.includes('shopee') || html.includes('itemid'))) {
+        console.log(`Google cache returned ${html.length} chars`);
+        return html;
       }
-    } catch (error) {
-      console.log('corsproxy failed:', error);
+    } else {
+      console.log(`Google cache returned ${response.status}`);
     }
+  } catch (error) {
+    console.log('Google cache failed:', error);
   }
 
   return null;
