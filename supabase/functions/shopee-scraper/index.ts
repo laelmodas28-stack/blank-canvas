@@ -40,10 +40,17 @@ function delay(ms: number) {
 
 function convertPrice(raw: number): number {
   if (raw <= 0) return 0;
-  // Shopee prices: if > 100000 it's in microcents, otherwise might be cents or real
-  if (raw > 100000) return raw / 100000;
-  if (raw > 1000) return raw / 100;
+  // Shopee stores prices in micro-units (price * 100000)
+  if (raw >= 1000000) return raw / 100000;
+  // Some endpoints use cents (price * 100)
+  if (raw >= 10000) return raw / 100;
+  // Already in real value
   return raw;
+}
+
+// Validate a price looks reasonable (BRL)
+function isReasonablePrice(price: number): boolean {
+  return price > 0.01 && price < 1000000;
 }
 
 async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
@@ -108,45 +115,167 @@ function parseProduct(item: any) {
   };
 }
 
-// Deep JSON extraction from HTML — tries multiple patterns
-function extractJsonFromHtml(html: string): any | null {
-  // Pattern 1: Server-side rendered initial state
-  const patterns = [
-    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/,
-    /"itemData"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
-    /"item"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
-    /pdp_data\s*=\s*(\{[\s\S]*?\});\s*<\/script>/,
-    /"productDetail"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        // Navigate to the item data
-        const item = parsed?.item || parsed?.data?.item || parsed?.itemData || parsed?.productDetail?.item || parsed;
-        if (item && (item.itemid || item.name || item.title)) {
+// Deep JSON extraction from HTML — tries multiple patterns including __NEXT_DATA__
+function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
+  // Strategy 1: __NEXT_DATA__ (Shopee uses Next.js)
+  try {
+    const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
+    if (nextDataMatch) {
+      console.log('Found __NEXT_DATA__ block');
+      const nextData = JSON.parse(nextDataMatch[1]);
+      // Navigate common Shopee __NEXT_DATA__ paths
+      const paths = [
+        nextData?.props?.pageProps?.initialState?.itemDetail?.itemData,
+        nextData?.props?.pageProps?.product,
+        nextData?.props?.pageProps?.item,
+        nextData?.props?.pageProps?.data?.item,
+        nextData?.props?.initialState?.item,
+        nextData?.props?.pageProps?.initialData?.item,
+        nextData?.props?.pageProps?.itemDetail,
+      ];
+      for (const item of paths) {
+        if (item && (item.itemid || item.name || item.title || item.price)) {
+          console.log('Extracted product from __NEXT_DATA__');
           return item;
         }
-      } catch {
-        // JSON parse failed, try next pattern
+      }
+      // Deep search in __NEXT_DATA__ for any object with itemid
+      const found = deepFindProduct(nextData, parseInt(itemid));
+      if (found) {
+        console.log('Found product via deep search in __NEXT_DATA__');
+        return found;
       }
     }
+  } catch (err) {
+    console.log('__NEXT_DATA__ parse failed:', err);
+  }
+
+  // Strategy 2: __INITIAL_STATE__
+  try {
+    const initialStateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
+    if (initialStateMatch) {
+      console.log('Found __INITIAL_STATE__ block');
+      const state = JSON.parse(initialStateMatch[1]);
+      const item = state?.item || state?.itemDetail?.item || state?.data?.item;
+      if (item && (item.itemid || item.name)) return item;
+    }
+  } catch {}
+
+  // Strategy 3: Search for JSON-LD structured data
+  try {
+    const ldMatches = html.matchAll(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g);
+    for (const m of ldMatches) {
+      try {
+        const ld = JSON.parse(m[1]);
+        if (ld['@type'] === 'Product' || ld.name) {
+          console.log('Found JSON-LD product data');
+          return {
+            name: ld.name || '',
+            price: ld.offers?.price ? parseFloat(ld.offers.price) : 0,
+            image: ld.image || '',
+            ratingAvg: ld.aggregateRating?.ratingValue ? parseFloat(ld.aggregateRating.ratingValue) : 0,
+            ratingCount: ld.aggregateRating?.reviewCount ? parseInt(ld.aggregateRating.reviewCount) : 0,
+            shopid: parseInt(shopid),
+            itemid: parseInt(itemid),
+            _fromLd: true,
+          };
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // Strategy 4: Search for inline script blocks with product data
+  try {
+    const scriptBlocks = html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g);
+    for (const block of scriptBlocks) {
+      const content = block[1];
+      // Look for itemid in the script content
+      if (content.includes(`"itemid":${itemid}`) || content.includes(`"itemid": ${itemid}`)) {
+        // Try to extract the surrounding JSON object
+        const patterns = [
+          new RegExp(`\\{[^{}]*"itemid"\\s*:\\s*${itemid}[^}]*\\}`, 's'),
+          /"item"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
+          /"itemData"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
+        ];
+        for (const p of patterns) {
+          const match = content.match(p);
+          if (match) {
+            try {
+              const obj = JSON.parse(match[1] || match[0]);
+              if (obj.itemid || obj.name || obj.price) {
+                console.log('Found product in inline script block');
+                return obj;
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+// Deep search for a product object by itemid in a nested structure
+function deepFindProduct(obj: any, targetItemid: number, depth = 0): any | null {
+  if (depth > 8 || !obj) return null;
+  if (typeof obj !== 'object') return null;
+
+  if (obj.itemid === targetItemid && (obj.name || obj.title || obj.price)) {
+    return obj;
+  }
+
+  for (const key of Object.keys(obj)) {
+    const result = deepFindProduct(obj[key], targetItemid, depth + 1);
+    if (result) return result;
   }
   return null;
 }
 
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
-    // Try deep JSON extraction first
-    const jsonItem = extractJsonFromHtml(html);
+    // Try structured JSON extraction first
+    const jsonItem = extractProductFromPageJson(html, shopid, itemid);
     if (jsonItem) {
+      if (jsonItem._fromLd) {
+        // JSON-LD data has different structure, prices already converted
+        return {
+          title: jsonItem.name || '',
+          price: jsonItem.price,
+          priceMin: jsonItem.price,
+          priceMax: jsonItem.price,
+          originalPrice: jsonItem.price,
+          discount: 0,
+          historicalSold: 0,
+          stock: 0,
+          ratingCount: jsonItem.ratingCount || 0,
+          ratingAvg: jsonItem.ratingAvg || 0,
+          category: '',
+          shopName: '',
+          shopid: parseInt(shopid),
+          itemid: parseInt(itemid),
+          image: jsonItem.image || '',
+          ctime: 0,
+          shopRating: 0,
+          shopFollowers: 0,
+          shopResponseRate: 0,
+          shopLocation: '',
+          liked: 0,
+          viewCount: 0,
+          ratingDetail: [],
+          isPreferredSeller: false,
+          brand: '',
+        };
+      }
       const product = parseProduct({ ...jsonItem, shopid: parseInt(shopid), itemid: parseInt(itemid) });
-      if (product.title || product.price > 0) return product;
+      if (product.title || product.price > 0 || product.historicalSold > 0) {
+        console.log(`JSON extraction successful: title="${product.title}", price=${product.price}, sold=${product.historicalSold}`);
+        return product;
+      }
     }
 
     // Fallback: regex-based extraction from embedded JSON fragments
+    console.log('Falling back to regex extraction from HTML');
     const extract = (patterns: RegExp[]): string => {
       for (const p of patterns) {
         const m = html.match(p);
@@ -168,7 +297,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
     const title = extract([
       /"name"\s*:\s*"([^"]{10,})"/,
       /"title"\s*:\s*"([^"]{10,})"/,
-    ]) || getMetaContent('og:title')?.replace(' | Shopee Brasil', '') || '';
+    ]) || getMetaContent('og:title')?.replace(/\s*\|\s*Shopee Brasil.*$/, '') || '';
 
     // Price extraction with multiple strategies
     const rawPrice = extractNum([
@@ -269,11 +398,21 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
     .limit(1);
   if (data && data.length > 0) {
     const row = data[0];
+    const price = parseFloat(row.preco);
+    const vendas = row.vendas || 0;
+    const avaliacoes = row.avaliacoes || 0;
+    
+    // Only use cache if it has meaningful data
+    if (price <= 0 && vendas <= 0 && avaliacoes <= 0) {
+      console.log('Cached data has all zeros — skipping cache');
+      return null;
+    }
+    
     return {
-      title: row.titulo, price: parseFloat(row.preco), priceMin: parseFloat(row.preco), priceMax: parseFloat(row.preco),
-      originalPrice: parseFloat(row.preco),
+      title: row.titulo, price, priceMin: price, priceMax: price,
+      originalPrice: price,
       discount: 0,
-      historicalSold: row.vendas, stock: row.estoque || 0, ratingCount: row.avaliacoes,
+      historicalSold: vendas, stock: row.estoque || 0, ratingCount: avaliacoes,
       ratingAvg: parseFloat(row.avaliacao_media || '0'), category: row.categoria || '',
       shopName: row.nome_loja || '', shopid: row.shopid, itemid: row.itemid, image: '',
       _cached: true, ctime: 0, shopRating: 0, shopFollowers: 0, shopResponseRate: 0,
@@ -297,6 +436,11 @@ async function getHistoricalRecords(supabase: any, shopid: string, itemid: strin
 }
 
 async function saveToCache(supabase: any, product: any, score: number) {
+  // Don't cache products with all zero values
+  if (product.price <= 0 && product.historicalSold <= 0 && product.ratingCount <= 0) {
+    console.log('Skipping cache save — all values are zero');
+    return;
+  }
   try {
     await supabase.from('produtos_analisados').insert({
       titulo: product.title, preco: product.price, vendas: product.historicalSold,
@@ -310,6 +454,11 @@ async function saveToCache(supabase: any, product: any, score: number) {
 }
 
 async function fetchProductDetails(shopid: string, itemid: string) {
+  const htmlHeaders = {
+    ...getHeaders('/'),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  };
+
   const strategies: { label: string; fn: () => Promise<any> }[] = [
     {
       label: 'v4 API',
@@ -339,12 +488,13 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       fn: async () => {
         await delay(800 + Math.random() * 700);
         const url = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, {
-          ...getHeaders('/'),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        });
+        const response = await fetchWithRetry(url, htmlHeaders);
         if (!response.ok) return null;
         const html = await response.text();
+        console.log(`HTML page size: ${html.length} chars`);
+        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
+        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
+        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
         return parseProductFromHtml(html, shopid, itemid);
       }
     },
@@ -353,13 +503,26 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       fn: async () => {
         await delay(600 + Math.random() * 500);
         const url = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, {
-          ...getHeaders('/'),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        });
+        const response = await fetchWithRetry(url, htmlHeaders);
         if (!response.ok) return null;
         const html = await response.text();
         return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
+      label: 'Mobile web API',
+      fn: async () => {
+        await delay(500 + Math.random() * 500);
+        const mobileHeaders = {
+          ...getHeaders('/'),
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        };
+        const url = `https://shopee.com.br/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
+        const response = await fetchWithRetry(url, mobileHeaders, 2);
+        if (!response.ok) return null;
+        const json = await response.json();
+        const item = json.data || json.item;
+        return item ? parseProduct(item) : null;
       }
     },
   ];
