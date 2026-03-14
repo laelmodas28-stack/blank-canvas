@@ -781,13 +781,11 @@ Deno.serve(async (req) => {
       // STEP 3-6: Extract structured data
       const productData = extractProductData(item, ids.shopid, ids.itemid);
 
-      // STEP 7: Validate
-      if (!validateData(productData)) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'Dados do produto estão inconsistentes (preço/estoque/vendas). Tente novamente.',
-          blockedByShopee: true,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      // STEP 7: Validate + reliability gate (avoid returning partial/incorrect listing data)
+      if (!hasReliableRealtimeData(item, productData)) {
+        const cachedResponse = await tryRespondFromCache(ids.shopid, ids.itemid);
+        if (cachedResponse) return cachedResponse;
+        return buildBlockedResponse();
       }
 
       // Save to DB
