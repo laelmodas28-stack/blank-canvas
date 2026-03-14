@@ -486,19 +486,23 @@ async function saveToDb(data: any) {
   }
 }
 
-async function getFromCache(shopid: string, itemid: string) {
+async function getFromCache(shopid: string, itemid: string, maxAgeHours = 12) {
   try {
     const supabase = getSupabaseClient();
-    const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-    const { data } = await supabase
+    let query = supabase
       .from('produtos_analisados')
       .select('*')
       .eq('shopid', parseInt(shopid))
       .eq('itemid', parseInt(itemid))
-      .gte('data_coleta', cutoff)
       .order('data_coleta', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    if (maxAgeHours > 0) {
+      const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+      query = query.gte('data_coleta', cutoff);
+    }
+
+    const { data } = await query.maybeSingle();
     return data;
   } catch {
     return null;
