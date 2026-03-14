@@ -860,33 +860,88 @@ async function fetchProductDetails(shopid: string, itemid: string) {
   throw new Error('Unable to extract valid Shopee product data. The page may be temporarily protected by anti-bot controls. Please try again in a few minutes.');
 }
 
-async function searchProducts(keyword: string, limit = 50) {
+async function fetchRelatedProducts(shopid: string, itemid: string, limit = 30) {
+  try {
+    const url = `${SHOPEE_BASE}/api/v4/recommend/recommend?bundle=product_page_related&itemid=${itemid}&shopid=${shopid}&limit=${limit}&offset=0`;
+    const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`), 2);
+    if (!response.ok) return [];
+    const json = await response.json();
+    const items = json?.data?.sections?.flatMap((section: any) => section?.data?.item || [])
+      || json?.data?.item
+      || json?.items
+      || [];
+
+    return items
+      .map((entry: any) => enrichProductData(parseProduct(entry?.item || entry?.item_basic || entry)))
+      .filter((product: any) => hasUsefulProductData(product));
+  } catch (error) {
+    console.log('Related products endpoint failed:', error);
+    return [];
+  }
+}
+
+async function searchProducts(keyword: string, limit = 50, context?: { shopid?: string; itemid?: string }) {
   const endpoints = [
     { label: 'v4 search', url: `${SHOPEE_BASE}/api/v4/search/search_items?by=relevancy&keyword=${encodeURIComponent(keyword)}&limit=${limit}&newest=0&order=desc&page_type=search&scenario=PAGE_GLOBAL_SEARCH&version=2` },
     { label: 'v2 search', url: `${SHOPEE_BASE}/api/v2/search_items/?by=relevancy&keyword=${encodeURIComponent(keyword)}&limit=${limit}&newest=0&order=desc&page_type=search` },
   ];
+
   for (const endpoint of endpoints) {
     try {
       console.log(`Trying ${endpoint.label}`);
       const response = await fetchWithRetry(endpoint.url, getHeaders(`/search?keyword=${encodeURIComponent(keyword)}`));
       if (response.ok) {
         const json = await response.json();
-        const items = json.items || json.data?.items || [];
-        if (items.length > 0) return items.map((entry: any) => parseProduct(entry.item_basic || entry));
+        const items = json?.items || json?.data?.items || [];
+        const parsed = items
+          .map((entry: any) => enrichProductData(parseProduct(entry?.item_basic || entry?.item || entry)))
+          .filter((product: any) => hasUsefulProductData(product));
+
+        if (parsed.length > 0) return parsed.slice(0, limit);
       }
-    } catch (err) { console.log(`${endpoint.label} failed:`, err); }
-    await delay(600 + Math.random() * 600);
+    } catch (err) {
+      console.log(`${endpoint.label} failed:`, err);
+    }
+
+    await delay(500 + Math.random() * 500);
   }
+
   try {
     console.log('Trying HTML search scrape');
     const searchUrl = `${SHOPEE_BASE}/search?keyword=${encodeURIComponent(keyword)}`;
-    const response = await fetchWithRetry(searchUrl, { ...getHeaders('/'), 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' });
+    const response = await fetchWithRetry(
+      searchUrl,
+      { ...getHeaders('/'), 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
+    );
+
     if (response.ok) {
       const html = await response.text();
-      const scriptMatch = html.match(/"listItems"\s*:\s*(\[[\s\S]*?\])\s*[,}]/);
-      if (scriptMatch) { try { return JSON.parse(scriptMatch[1]).slice(0, limit).map((item: any) => parseProduct(item)); } catch {} }
+      const jsonCandidates = [
+        html.match(/"listItems"\s*:\s*(\[[\s\S]*?\])\s*[,}]/)?.[1],
+        html.match(/"items"\s*:\s*(\[[\s\S]*?\])\s*[,}]/)?.[1],
+      ].filter(Boolean);
+
+      for (const candidate of jsonCandidates) {
+        const parsed = tryParseJson(candidate as string);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const products = parsed
+            .map((item: any) => enrichProductData(parseProduct(item?.item_basic || item?.item || item)))
+            .filter((product: any) => hasUsefulProductData(product));
+
+          if (products.length > 0) return products.slice(0, limit);
+        }
+      }
     }
-  } catch (err) { console.log('HTML search scrape failed:', err); }
+  } catch (err) {
+    console.log('HTML search scrape failed:', err);
+  }
+
+  // Final fallback: related products API using the current product context
+  if (context?.shopid && context?.itemid) {
+    const related = await fetchRelatedProducts(context.shopid, context.itemid, limit);
+    if (related.length > 0) return related;
+  }
+
   return [];
 }
 
