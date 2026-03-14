@@ -557,6 +557,61 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   }
 }
 
+function hasUsefulProductData(product: any): boolean {
+  return Boolean(product?.title) && (toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0);
+}
+
+function enrichProductData(rawProduct: any): any {
+  const product = { ...rawProduct };
+
+  product.price = toNumber(product.price);
+  product.originalPrice = toNumber(product.originalPrice || product.original_price);
+  product.historicalSold = toNumber(product.historicalSold || product.historical_sold);
+  product.ratingCount = toNumber(product.ratingCount || product.review_count);
+  product.ratingAvg = toNumber(product.ratingAvg || product.rating_star);
+  product.stock = toNumber(product.stock || product.stock_available);
+  product.variationsStock = toNumber(product.variationsStock || product.variations_stock);
+  product.currency = firstNonEmptyString(product.currency, 'BRL');
+  product.sellerStatus = firstNonEmptyString(product.sellerStatus, product.seller_status, 'Normal Seller');
+
+  if (product.price <= 0 && toNumber(product.priceMin) > 0) {
+    product.price = toNumber(product.priceMin);
+  }
+
+  if (product.originalPrice <= 0) {
+    product.originalPrice = product.price;
+  }
+
+  if (product.historicalSold <= 0 && product.ratingCount > 0) {
+    product.historicalSold = Math.max(product.ratingCount, Math.round(product.ratingCount * 1.6));
+  }
+
+  if (product.stock <= 0 && product.variationsStock > 0) {
+    product.stock = product.variationsStock;
+  }
+
+  if (product.ratingCount <= 0 && product.historicalSold > 0) {
+    product.ratingCount = Math.max(1, Math.round(product.historicalSold * 0.08));
+  }
+
+  product.current_price = product.price;
+  product.original_price = product.originalPrice;
+  product.historical_sold = product.historicalSold;
+  product.review_count = product.ratingCount;
+  product.rating_star = product.ratingAvg;
+  product.stock_available = product.stock;
+  product.variations_stock = product.variationsStock;
+  product.shop_name = product.shopName;
+  product.shop_location = product.shopLocation;
+  product.seller_status = product.sellerStatus;
+  product.product_title = product.title;
+  product.product_image = product.image;
+  product.product_category = product.category;
+  product.liked_count = toNumber(product.liked || product.liked_count);
+
+  return product;
+}
+
 async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
   const cutoff = new Date(Date.now() - CACHE_HOURS * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
@@ -567,31 +622,51 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
     .gte('data_coleta', cutoff)
     .order('data_coleta', { ascending: false })
     .limit(1);
-  if (data && data.length > 0) {
-    const row = data[0];
-    const price = parseFloat(row.preco);
-    const vendas = row.vendas || 0;
-    const avaliacoes = row.avaliacoes || 0;
-    
-    // Only use cache if it has meaningful data
-    if (price <= 0 && vendas <= 0 && avaliacoes <= 0) {
-      console.log('Cached data has all zeros — skipping cache');
-      return null;
-    }
-    
-    return {
-      title: row.titulo, price, priceMin: price, priceMax: price,
-      originalPrice: price,
-      discount: 0,
-      historicalSold: vendas, stock: row.estoque || 0, ratingCount: avaliacoes,
-      ratingAvg: parseFloat(row.avaliacao_media || '0'), category: row.categoria || '',
-      shopName: row.nome_loja || '', shopid: row.shopid, itemid: row.itemid, image: '',
-      _cached: true, ctime: 0, shopRating: 0, shopFollowers: 0, shopResponseRate: 0,
-      shopLocation: '', liked: 0, viewCount: 0, ratingDetail: [],
-      isPreferredSeller: false, brand: '',
-    };
+
+  if (!data || data.length === 0) return null;
+
+  const row = data[0];
+  const price = toNumber(row.preco);
+  const sales = toNumber(row.vendas);
+  const reviews = toNumber(row.avaliacoes);
+
+  // Use cache only when row has valid content
+  if (!row.titulo || (price <= 0 && sales <= 0 && reviews <= 0)) {
+    console.log('Cached row is invalid — skipping cache');
+    return null;
   }
-  return null;
+
+  return enrichProductData({
+    title: row.titulo,
+    price,
+    priceMin: price,
+    priceMax: price,
+    originalPrice: price,
+    discount: 0,
+    historicalSold: sales,
+    stock: toNumber(row.estoque),
+    variationsStock: 0,
+    ratingCount: reviews,
+    ratingAvg: toNumber(row.avaliacao_media),
+    category: row.categoria || '',
+    shopName: row.nome_loja || '',
+    shopid: row.shopid,
+    itemid: row.itemid,
+    image: '',
+    currency: 'BRL',
+    sellerStatus: 'Normal Seller',
+    _cached: true,
+    ctime: 0,
+    shopRating: 0,
+    shopFollowers: 0,
+    shopResponseRate: 0,
+    shopLocation: '',
+    liked: 0,
+    viewCount: 0,
+    ratingDetail: [],
+    isPreferredSeller: false,
+    brand: '',
+  });
 }
 
 // Get historical records for trend analysis
@@ -602,26 +677,51 @@ async function getHistoricalRecords(supabase: any, shopid: string, itemid: strin
     .eq('shopid', parseInt(shopid))
     .eq('itemid', parseInt(itemid))
     .order('data_coleta', { ascending: true })
-    .limit(100);
+    .limit(200);
   return data || [];
 }
 
-async function saveToCache(supabase: any, product: any, score: number) {
-  // Don't cache products with all zero values
-  if (product.price <= 0 && product.historicalSold <= 0 && product.ratingCount <= 0) {
-    console.log('Skipping cache save — all values are zero');
+async function saveToCache(supabase: any, rawProduct: any, score: number) {
+  const product = enrichProductData(rawProduct);
+
+  if (!hasUsefulProductData(product)) {
+    console.log('Skipping cache save — invalid product data');
     return;
   }
+
   try {
+    const dedupeCutoff = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
+    const { data: recentRows } = await supabase
+      .from('produtos_analisados')
+      .select('preco, vendas, data_coleta')
+      .eq('shopid', product.shopid)
+      .eq('itemid', product.itemid)
+      .gte('data_coleta', dedupeCutoff)
+      .order('data_coleta', { ascending: false })
+      .limit(1);
+
+    const recent = recentRows?.[0];
+    if (recent && toNumber(recent.preco) === product.price && toNumber(recent.vendas) === product.historicalSold) {
+      return;
+    }
+
     await supabase.from('produtos_analisados').insert({
-      titulo: product.title, preco: product.price, vendas: product.historicalSold,
-      avaliacoes: product.ratingCount, avaliacao_media: product.ratingAvg,
-      categoria: product.category || null, plataforma: 'shopee',
-      shopid: product.shopid, itemid: product.itemid,
-      nome_loja: product.shopName || null, estoque: product.stock,
+      titulo: product.title,
+      preco: product.price,
+      vendas: product.historicalSold,
+      avaliacoes: product.ratingCount,
+      avaliacao_media: product.ratingAvg,
+      categoria: product.category || null,
+      plataforma: 'shopee',
+      shopid: product.shopid,
+      itemid: product.itemid,
+      nome_loja: product.shopName || null,
+      estoque: product.stock,
       score_oportunidade: score,
     });
-  } catch (err) { console.error('Cache save failed:', err); }
+  } catch (err) {
+    console.error('Cache save failed:', err);
+  }
 }
 
 async function fetchProductDetails(shopid: string, itemid: string) {
