@@ -450,36 +450,13 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
 
 // Fetch product data through public mirror/proxy fallbacks
 async function fetchViaScrapingProxy(url: string): Promise<string | null> {
-  // 1) Try proxy services for Shopee API
-    try {
-      console.log('Trying ScraperAPI proxy...');
-      const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 35000);
-      const response = await fetch(proxyUrl, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        const html = await response.text();
-        if (html && html.length > 1000) {
-          console.log(`ScraperAPI returned ${html.length} chars`);
-          return html;
-        }
-      } else {
-        console.log(`ScraperAPI returned ${response.status}`);
-      }
-    } catch (error) {
-      console.log('ScraperAPI failed:', error);
-    }
-  }
-
-  // 2) Try proxy services for Shopee API
   const idsMatch = url.match(/-i\.(\d+)\.(\d+)/);
   if (!idsMatch) return null;
-  const [, shopid, itemid] = idsMatch;
 
+  const [, shopid, itemid] = idsMatch;
   const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
 
+  // 1) Try public proxy mirrors for Shopee API
   const proxyAttempts = [
     { label: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}` },
     { label: 'corsproxy', url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}` },
@@ -489,7 +466,7 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     try {
       console.log(`Trying ${attempt.label} proxy for API...`);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(attempt.url, { signal: controller.signal });
       clearTimeout(timeout);
 
@@ -507,7 +484,7 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     }
   }
 
-  // 3) Google Cache
+  // 2) Google Cache fallback
   try {
     console.log('Trying Google cache...');
     const gcUrl = `https://webcache.googleusercontent.com/search?q=cache:shopee.com.br/product-i.${shopid}.${itemid}`;
@@ -515,7 +492,10 @@ async function fetchViaScrapingProxy(url: string): Promise<string | null> {
     const timeout = setTimeout(() => controller.abort(), 10000);
     const response = await fetch(gcUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html',
+      },
     });
     clearTimeout(timeout);
 
