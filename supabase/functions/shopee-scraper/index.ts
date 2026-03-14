@@ -724,11 +724,46 @@ async function saveToCache(supabase: any, rawProduct: any, score: number) {
   }
 }
 
+async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null> {
+  const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!firecrawlKey) return null;
+
+  try {
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        formats: ['rawHtml', 'html'],
+        waitFor: 2500,
+        onlyMainContent: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.text();
+      console.log(`Headless render failed [${response.status}]: ${payload.slice(0, 200)}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return data?.data?.rawHtml || data?.data?.html || data?.rawHtml || data?.html || null;
+  } catch (error) {
+    console.log('Headless render request failed:', error);
+    return null;
+  }
+}
+
 async function fetchProductDetails(shopid: string, itemid: string) {
   const htmlHeaders = {
     ...getHeaders('/'),
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   };
+
+  const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
 
   const strategies: { label: string; fn: () => Promise<any> }[] = [
     {
@@ -738,7 +773,7 @@ async function fetchProductDetails(shopid: string, itemid: string) {
         const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
         if (!response.ok) return null;
         const json = await response.json();
-        const item = json.data || json.item;
+        const item = json?.data?.item || json?.data || json?.item;
         return item ? parseProduct(item) : null;
       }
     },
@@ -750,34 +785,8 @@ async function fetchProductDetails(shopid: string, itemid: string) {
         const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
         if (!response.ok) return null;
         const json = await response.json();
-        const item = json.data || json.item;
+        const item = json?.data?.item || json?.data || json?.item;
         return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'HTML scraping (product page)',
-      fn: async () => {
-        await delay(800 + Math.random() * 700);
-        const url = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        console.log(`HTML page size: ${html.length} chars`);
-        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
-        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
-        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'HTML scraping (alternate URL)',
-      fn: async () => {
-        await delay(600 + Math.random() * 500);
-        const url = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        return parseProductFromHtml(html, shopid, itemid);
       }
     },
     {
@@ -792,8 +801,41 @@ async function fetchProductDetails(shopid: string, itemid: string) {
         const response = await fetchWithRetry(url, mobileHeaders, 2);
         if (!response.ok) return null;
         const json = await response.json();
-        const item = json.data || json.item;
+        const item = json?.data?.item || json?.data || json?.item;
         return item ? parseProduct(item) : null;
+      }
+    },
+    {
+      label: 'HTML scraping (product page)',
+      fn: async () => {
+        await delay(700 + Math.random() * 700);
+        const response = await fetchWithRetry(canonicalProductUrl, htmlHeaders);
+        if (!response.ok) return null;
+        const html = await response.text();
+        console.log(`HTML page size: ${html.length} chars`);
+        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
+        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
+        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
+        return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
+      label: 'HTML scraping (alternate URL)',
+      fn: async () => {
+        await delay(600 + Math.random() * 500);
+        const altUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
+        const response = await fetchWithRetry(altUrl, htmlHeaders);
+        if (!response.ok) return null;
+        const html = await response.text();
+        return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
+      label: 'Headless render (dynamic JS)',
+      fn: async () => {
+        const renderedHtml = await fetchRenderedHtmlWithHeadless(canonicalProductUrl);
+        if (!renderedHtml) return null;
+        return parseProductFromHtml(renderedHtml, shopid, itemid);
       }
     },
   ];
@@ -801,18 +843,21 @@ async function fetchProductDetails(shopid: string, itemid: string) {
   for (const strategy of strategies) {
     try {
       console.log(`Trying: ${strategy.label}`);
-      const result = await strategy.fn();
-      if (result && (result.price > 0 || result.historicalSold > 0 || result.ratingCount > 0)) {
-        console.log(`Success: ${strategy.label} — price=${result.price}, sold=${result.historicalSold}`);
+      const rawResult = await strategy.fn();
+      const result = rawResult ? enrichProductData(rawResult) : null;
+
+      if (result && hasUsefulProductData(result)) {
+        console.log(`Success: ${strategy.label} — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
         return result;
       }
+
       console.log(`${strategy.label}: returned but with no useful data`);
     } catch (err) {
       console.log(`${strategy.label} failed:`, err);
     }
   }
 
-  throw new Error('Não foi possível obter dados do produto. A Shopee pode estar bloqueando requisições externas. Tente novamente em alguns minutos.');
+  throw new Error('Unable to extract valid Shopee product data. The page may be temporarily protected by anti-bot controls. Please try again in a few minutes.');
 }
 
 async function searchProducts(keyword: string, limit = 50) {
