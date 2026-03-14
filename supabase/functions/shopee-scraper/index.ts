@@ -1342,7 +1342,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       if (!html) continue;
 
       console.log(`Fetched HTML size: ${html.length} chars`);
-      const parsed = parseProductFromHtml(html, shopid, itemid);
+      const parsed = parseProductFromHtml(html, shopid, itemid, selectedModelId);
       const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
@@ -1361,7 +1361,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
     if (renderedHtml) {
-      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
+      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid, selectedModelId);
       const result = parsed ? enrichProductData(parsed) : null;
       if (result && hasUsefulProductData(result)) {
         console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
