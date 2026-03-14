@@ -1077,7 +1077,10 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
     const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
-    const visiblePriceRange = extractVisiblePriceRangeFromHtml(html);
+    const visibleSignals = extractVisibleListingSignals(html);
+    const visiblePriceRange = visibleSignals.priceMin && visibleSignals.priceMin > 0
+      ? { min: visibleSignals.priceMin, max: Math.max(visibleSignals.priceMax || visibleSignals.priceMin, visibleSignals.priceMin) }
+      : null;
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
