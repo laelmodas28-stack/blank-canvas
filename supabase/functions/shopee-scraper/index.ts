@@ -400,7 +400,16 @@ function extractProductData(item: any, shopid: string, itemid: string) {
 // ─── STEP 7: VALIDATION ────────────────────────────────────────────────────────
 
 function validateData(data: any): boolean {
-  return data.product_title.length > 0 && data.current_price > 0;
+  return (
+    typeof data.product_title === 'string' &&
+    data.product_title.trim().length > 0 &&
+    Number.isFinite(data.current_price) &&
+    data.current_price > 0 &&
+    Number.isFinite(data.stock_available) &&
+    data.stock_available >= 0 &&
+    Number.isFinite(data.total_sales) &&
+    data.total_sales >= 0
+  );
 }
 
 // ─── SEARCH FUNCTIONALITY ──────────────────────────────────────────────────────
