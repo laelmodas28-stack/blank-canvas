@@ -226,7 +226,7 @@ async function fetchShopeeApi(shopid: string, itemid: string): Promise<any> {
     const scraperHtml = await fetchViaScraperApi(htmlUrl, 'html');
     if (scraperHtml) {
       const item = extractItemFromHtml(scraperHtml);
-      if (item) {
+      if (item && hasCriticalProductFields(item)) {
         console.log('Success: extracted from ScraperAPI HTML');
         return item;
       }
