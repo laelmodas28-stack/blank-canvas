@@ -546,23 +546,28 @@ function parseProduct(item: any) {
   const selectedModelId = firstPositiveNumber(item?._selectedModelId, item?.selected_model_id, item?.display_model_id);
   const variationPriceInfo = getVariationPriceInfo(modelsArray, selectedModelId);
 
-  // For price, prioritize selected model price, then price_min, then model min range.
+  // For price, prefer canonical item price_min/price_max from Shopee payload.
+  // Only fallback to model values when canonical fields are absent.
   const rawPriceMin = firstPositiveNumber(
-    variationPriceInfo.minRaw,
     item?.price_min,
     item?.price_min_before_discount,
+    variationPriceInfo.selectedRaw,
+    variationPriceInfo.minRaw,
+    item?.price,
   );
   const rawPriceMax = firstPositiveNumber(
-    variationPriceInfo.maxRaw,
     item?.price_max,
     item?.price_max_before_discount,
+    variationPriceInfo.maxRaw,
     rawPriceMin,
   );
   const rawPrice = firstPositiveNumber(
     variationPriceInfo.selectedRaw,
-    rawPriceMin,
+    item?.price_min,
     item?.price,
     item?.current_price,
+    variationPriceInfo.minRaw,
+    rawPriceMin,
     rawPriceMax,
   );
   const rawOriginalPrice = firstPositiveNumber(
