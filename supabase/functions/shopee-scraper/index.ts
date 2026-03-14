@@ -771,43 +771,11 @@ Deno.serve(async (req) => {
         item = await fetchShopeeApi(ids.shopid, ids.itemid);
       }
 
-      // If API completely fails, try cache (fresh first, then stale)
+      // If API completely fails, try cache before returning blocked response
       if (!item) {
-        const freshCache = await getFromCache(ids.shopid, ids.itemid, 12);
-        if (freshCache) {
-          console.log('Using fresh cache data');
-          const payload = buildAnalyzeResponseFromCache(freshCache, 'cache');
-          const history = await getHistory(ids.shopid, ids.itemid);
-          if (history.length > 0) payload.analysis.history = history;
-          return new Response(JSON.stringify(payload), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        const staleCache = await getFromCache(ids.shopid, ids.itemid, 0);
-        if (staleCache) {
-          console.log('Using stale cache data');
-          const payload = buildAnalyzeResponseFromCache(staleCache, 'cache_stale');
-          const history = await getHistory(ids.shopid, ids.itemid);
-          if (history.length > 0) payload.analysis.history = history;
-          return new Response(JSON.stringify(payload), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        const hasScraperApi = Boolean(Deno.env.get('SCRAPER_API_KEY'));
-
-        // Return structured non-500 payload so frontend can show message without runtime crash
-        return new Response(JSON.stringify({
-          success: false,
-          error: hasScraperApi
-            ? 'Não foi possível obter dados do produto no momento. Tente novamente em alguns minutos.'
-            : 'Não foi possível obter dados do produto. Configure o secret SCRAPER_API_KEY para contornar o bloqueio da Shopee.',
-          blockedByShopee: true,
-          requiresScraperApi: !hasScraperApi,
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        const cachedResponse = await tryRespondFromCache(ids.shopid, ids.itemid);
+        if (cachedResponse) return cachedResponse;
+        return buildBlockedResponse();
       }
 
       // STEP 3-6: Extract structured data
