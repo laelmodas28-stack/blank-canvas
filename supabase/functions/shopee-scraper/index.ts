@@ -619,6 +619,53 @@ function computeAnalysis(product: any, competitors: any[]) {
   };
 }
 
+function buildAnalyzeResponseFromCache(cached: any, dataSource: 'cache' | 'cache_stale') {
+  const product = {
+    title: cached.titulo,
+    price: cached.preco,
+    priceMin: cached.preco,
+    priceMax: cached.preco,
+    originalPrice: cached.preco,
+    historicalSold: cached.vendas,
+    stock: cached.estoque || 0,
+    ratingCount: cached.avaliacoes,
+    ratingAvg: cached.avaliacao_media || 0,
+    shopName: cached.nome_loja || '',
+    shopid: cached.shopid,
+    itemid: cached.itemid,
+    image: '',
+    score: cached.score_oportunidade || 0,
+    liked: 0,
+    brand: '',
+    category: cached.categoria || '',
+    isPreferredSeller: false,
+    sellerStatus: 'Normal Seller',
+  };
+
+  const { analysis, metrics } = computeAnalysis({
+    current_price: cached.preco,
+    total_sales: cached.vendas,
+    rating_average: cached.avaliacao_media || 0,
+    review_count: cached.avaliacoes,
+    stock_available: cached.estoque || 0,
+    likes: 0,
+    shop_name: cached.nome_loja || '',
+    shop_location: '',
+    shop_rating: 0,
+    seller_status: 'Normal Seller',
+  }, []);
+
+  return {
+    success: true,
+    product,
+    competitors: [],
+    metrics,
+    analysis,
+    dataSource,
+    fromCache: true,
+  };
+}
+
 // ─── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
