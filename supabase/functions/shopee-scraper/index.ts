@@ -208,7 +208,7 @@ function parseProduct(item: any) {
   const shopLocation = firstNonEmptyString(item?.shop_location, item?.shop_info?.shop_location, item?.shop_detailed?.shop_location, item?.shop?.location);
   const sellerStatus = getSellerStatus(item);
 
-  const normalizedTitle = firstNonEmptyString(item?.name, item?.title, item?.item_name);
+  const normalizedTitle = sanitizeProductTitle(firstNonEmptyString(item?.name, item?.title, item?.item_name));
   const normalizedImage = normalizeImage(firstNonEmptyString(item?.image, item?.images?.[0], item?.thumbnail));
   const category = extractCategory(item);
   const currency = firstNonEmptyString(item?.currency, item?.currency_code, item?.item_currency, 'BRL');
