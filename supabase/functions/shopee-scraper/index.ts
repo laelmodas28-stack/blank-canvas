@@ -577,7 +577,7 @@ function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number):
 }
 
 function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
-  const itemRegex = new RegExp(`"itemid"\\s*:\\s*${itemid}`, 'g');
+  const itemRegex = new RegExp(`"(?:itemid|item_id)"\\s*:\\s*"?${itemid}"?`, 'g');
   let match: RegExpExecArray | null;
   let bestCandidate: any | null = null;
   let bestScore = -1;
