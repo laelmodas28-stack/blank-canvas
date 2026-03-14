@@ -791,8 +791,12 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 }
 
 function hasUsefulProductData(product: any): boolean {
-  // Accept if we have title + price, or title + any sales/rating data
-  return Boolean(product?.title) && (toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0);
+  const title = sanitizeProductTitle(firstNonEmptyString(product?.title, product?.product_title, product?.name));
+  const hasCoreSignals = toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0;
+  const hasIds = toNumber(product?.shopid) > 0 && toNumber(product?.itemid) > 0;
+
+  // We only accept product data with valid IDs + meaningful title + any commercial signal.
+  return Boolean(title) && hasIds && hasCoreSignals;
 }
 
 function enrichProductData(rawProduct: any): any {
