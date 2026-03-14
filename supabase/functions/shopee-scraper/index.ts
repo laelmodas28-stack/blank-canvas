@@ -111,6 +111,78 @@ function sumVariationStock(models: any[] | undefined): number {
   }, 0);
 }
 
+function getVariationPriceInfo(models: any[] | undefined, selectedModelId?: number) {
+  if (!Array.isArray(models) || models.length === 0) {
+    return { minRaw: 0, maxRaw: 0, selectedRaw: 0, selectedOriginalRaw: 0 };
+  }
+
+  const modelPrices: number[] = [];
+  let selectedRaw = 0;
+  let selectedOriginalRaw = 0;
+
+  for (const model of models) {
+    const rawPrice = firstPositiveNumber(model?.price, model?.price_info?.price, model?.extinfo?.price);
+    const rawOriginal = firstPositiveNumber(model?.price_before_discount, model?.price_info?.price_before_discount, rawPrice);
+
+    if (rawPrice > 0) modelPrices.push(rawPrice);
+
+    const modelId = firstPositiveNumber(model?.modelid, model?.model_id, model?.id);
+    if (selectedModelId && modelId === selectedModelId) {
+      selectedRaw = rawPrice;
+      selectedOriginalRaw = rawOriginal;
+    }
+  }
+
+  const minRaw = modelPrices.length > 0 ? Math.min(...modelPrices) : 0;
+  const maxRaw = modelPrices.length > 0 ? Math.max(...modelPrices) : 0;
+
+  return { minRaw, maxRaw, selectedRaw, selectedOriginalRaw };
+}
+
+function extractSelectedModelIdFromUrl(rawUrl?: string): number {
+  if (!rawUrl || typeof rawUrl !== 'string') return 0;
+
+  try {
+    const parsed = new URL(rawUrl.trim());
+
+    const direct = parsed.searchParams.get('display_model_id') || parsed.searchParams.get('modelid') || parsed.searchParams.get('model_id');
+    if (direct && /^\d+$/.test(direct)) return Number(direct);
+
+    const extraParamsRaw = parsed.searchParams.get('extraParams');
+    if (extraParamsRaw) {
+      const decoded = decodeURIComponent(extraParamsRaw);
+      const extra = JSON.parse(decoded);
+      const nestedId = firstPositiveNumber(extra?.display_model_id, extra?.model_id, extra?.modelid);
+      if (nestedId > 0) return nestedId;
+    }
+  } catch {
+    // Ignore URL/JSON parsing issues.
+  }
+
+  return 0;
+}
+
+function extractVisiblePriceRangeFromHtml(html: string): { min: number; max: number } | null {
+  if (!html) return null;
+
+  // Most common visible format in Shopee BR: R$24,89 - R$33,90
+  const rangeMatch = html.match(/R\$\s*([\d.]+,[\d]{2})\s*[-–]\s*R\$\s*([\d.]+,[\d]{2})/i);
+  if (rangeMatch) {
+    const min = toNumber(rangeMatch[1]);
+    const max = toNumber(rangeMatch[2]);
+    if (min > 0 && max > 0) return { min: Math.min(min, max), max: Math.max(min, max) };
+  }
+
+  // Single price format: R$24,89
+  const singleMatch = html.match(/R\$\s*([\d.]+,[\d]{2})/i);
+  if (singleMatch) {
+    const value = toNumber(singleMatch[1]);
+    if (value > 0) return { min: value, max: value };
+  }
+
+  return null;
+}
+
 function normalizeImage(image: unknown): string {
   if (typeof image !== 'string' || !image) return '';
   if (image.startsWith('http://') || image.startsWith('https://')) return image;
