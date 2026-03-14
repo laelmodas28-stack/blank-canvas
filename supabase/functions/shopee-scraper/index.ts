@@ -1500,10 +1500,12 @@ Deno.serve(async (req) => {
         );
       }
 
-      const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
-      const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
-      let product = cached || liveProduct;
-      const fromCache = Boolean(cached);
+      // Always prioritize live extraction for real-time accuracy.
+      // Use cache only as a fallback when live extraction is blocked.
+      const liveProduct = await fetchProductDetails(extractedShopid, extractedItemid, url);
+      const cached = liveProduct ? null : await getCachedProduct(supabase, extractedShopid, extractedItemid);
+      let product = liveProduct || cached;
+      const fromCache = !liveProduct && Boolean(cached);
 
       if (!hasUsefulProductData(product)) {
         return new Response(
