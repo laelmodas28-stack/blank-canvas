@@ -161,16 +161,18 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
 
 function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
+  const isFromLd = Boolean(item?._fromLd);
 
   const rawPrice = firstPositiveNumber(item?.price, item?.price_min, item?.price_max, item?.current_price);
   const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price, item?.price_max);
   const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price, item?.price_min);
   const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.original_price, item?.price_before_discount_min);
 
-  const price = convertPrice(rawPrice);
-  const priceMin = convertPrice(rawPriceMin || rawPrice);
-  const priceMax = convertPrice(rawPriceMax || rawPrice);
-  const originalPrice = convertPrice(rawOriginalPrice);
+  // JSON-LD and meta tag prices are already in BRL — skip conversion
+  const price = isFromLd ? Math.round(toNumber(rawPrice) * 100) / 100 : convertPrice(rawPrice);
+  const priceMin = isFromLd ? Math.round(toNumber(rawPriceMin || rawPrice) * 100) / 100 : convertPrice(rawPriceMin || rawPrice);
+  const priceMax = isFromLd ? Math.round(toNumber(rawPriceMax || rawPrice) * 100) / 100 : convertPrice(rawPriceMax || rawPrice);
+  const originalPrice = isFromLd ? Math.round(toNumber(rawOriginalPrice) * 100) / 100 : convertPrice(rawOriginalPrice);
 
   const ratingCountArray = Array.isArray(item?.item_rating?.rating_count)
     ? item.item_rating.rating_count
@@ -353,6 +355,12 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
   return null;
 }
 
+// Extract meta tag content from HTML
+function getMetaContent(html: string, name: string): string {
+  const match = html.match(new RegExp(`<meta[^>]*(?:property|name)="${name}"[^>]*content="([^"]*)"`, 'i'));
+  return match?.[1] || '';
+}
+
 // Deep JSON extraction from HTML — prioritizes __INITIAL_STATE__ and __NEXT_DATA__
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
@@ -421,14 +429,50 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
       : (ld?.['@type'] === 'Product' || ld?.name ? ld : null);
 
     if (productNode) {
+      // Extract price from offers — can be object or array
+      let ldPrice = 0;
+      let ldOriginalPrice = 0;
+      let ldCurrency = 'BRL';
+      const offers = productNode.offers;
+      if (offers) {
+        if (Array.isArray(offers)) {
+          const firstOffer = offers[0];
+          ldPrice = firstPositiveNumber(firstOffer?.price, firstOffer?.lowPrice);
+          ldOriginalPrice = firstPositiveNumber(firstOffer?.highPrice, firstOffer?.price);
+          ldCurrency = firstNonEmptyString(firstOffer?.priceCurrency, 'BRL');
+        } else {
+          ldPrice = firstPositiveNumber(offers.price, offers.lowPrice);
+          ldOriginalPrice = firstPositiveNumber(offers.highPrice, offers.price);
+          ldCurrency = firstNonEmptyString(offers.priceCurrency, 'BRL');
+        }
+      }
+
+      // Use meta tags to supplement LD data
+      const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–-]\s*Shopee\s*Brasil.*$/i, '').trim();
+      const metaImage = getMetaContent(html, 'og:image');
+      const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
+      const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), ldCurrency);
+      
+      const ldName = productNode.name || '';
+      // If LD name looks like a variation (short, has comma/slash), prefer meta title
+      const isVariationName = ldName.length < 20 && (/[,\/]/.test(ldName) || !ldName.includes(' '));
+      const finalTitle = isVariationName && metaTitle ? metaTitle : (ldName || metaTitle || '');
+      const finalPrice = firstPositiveNumber(ldPrice, metaPrice);
+      const finalImage = firstNonEmptyString(
+        Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
+        metaImage
+      );
+
+      console.log(`JSON-LD extracted: title="${finalTitle}", price=${finalPrice}, ldPrice=${ldPrice}, metaPrice=${metaPrice}`);
+
       return {
         itemid: parsedItemid,
         shopid: parsedShopid,
-        name: productNode.name || '',
-        image: Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
-        price: productNode.offers?.price ? Number(productNode.offers.price) : 0,
-        original_price: productNode.offers?.highPrice ? Number(productNode.offers.highPrice) : 0,
-        currency: productNode.offers?.priceCurrency || 'BRL',
+        name: finalTitle,
+        image: finalImage,
+        price: finalPrice,
+        original_price: firstPositiveNumber(ldOriginalPrice, finalPrice),
+        currency: metaCurrency,
         rating_star: productNode.aggregateRating?.ratingValue ? Number(productNode.aggregateRating.ratingValue) : 0,
         review_count: productNode.aggregateRating?.reviewCount ? Number(productNode.aggregateRating.reviewCount) : 0,
         _fromLd: true,
@@ -452,18 +496,52 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
 
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
+    // 0) Always extract meta tags first — they're the most reliable on Shopee
+    const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim();
+    const metaImage = getMetaContent(html, 'og:image');
+    const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
+    const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
+    const metaDescription = getMetaContent(html, 'og:description');
+    const titleTag = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim() || '';
+
+    console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
+
     // 1) JSON-first extraction from embedded objects
     const jsonItem = extractProductFromPageJson(html, shopid, itemid);
     if (jsonItem) {
+      // Supplement JSON data with meta tags
+      if (!jsonItem.name || (jsonItem.name.length < 20 && /[,\/]/.test(jsonItem.name))) {
+        jsonItem.name = metaTitle || titleTag || jsonItem.name;
+      }
+      if (!jsonItem.image) jsonItem.image = metaImage;
+      if (toNumber(jsonItem.price) <= 0 && metaPrice > 0) jsonItem.price = metaPrice;
+
       const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid) });
+      
+      // Even if JSON extraction got partial data, supplement with meta
+      if (parsed.price <= 0 && metaPrice > 0) {
+        parsed.price = metaPrice;
+        parsed.current_price = metaPrice;
+        parsed.priceMin = metaPrice;
+        parsed.priceMax = metaPrice;
+      }
+      if (!parsed.title && metaTitle) {
+        parsed.title = metaTitle;
+        parsed.product_title = metaTitle;
+      }
+      if (!parsed.image && metaImage) {
+        parsed.image = metaImage;
+        parsed.product_image = metaImage;
+      }
+
       if (parsed.title || parsed.price > 0 || parsed.historicalSold > 0 || parsed.ratingCount > 0) {
         console.log(`JSON extraction successful: title="${parsed.title}", price=${parsed.price}, sold=${parsed.historicalSold}`);
         return parsed;
       }
     }
 
-    // 2) Fallback: robust regex + metadata selectors
-    console.log('Falling back to alternative selectors from HTML');
+    // 2) Meta-tag-first fallback with regex supplementation
+    console.log('Falling back to meta tags + regex selectors');
 
     const extract = (patterns: RegExp[]): string => {
       for (const pattern of patterns) {
@@ -478,29 +556,30 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       return raw ? toNumber(raw) : 0;
     };
 
-    const getMetaContent = (name: string) => {
-      const match = html.match(new RegExp(`<meta[^>]*(?:property|name)="${name}"[^>]*content="([^"]*)"`, 'i'));
-      return match?.[1] || '';
-    };
+    // Extract sold count from description text like "X mil vendidos" or "X vendidos"
+    let soldFromDescription = 0;
+    const soldMatch = metaDescription.match(/([\d.,]+)\s*(?:mil\s+)?vendidos?/i);
+    if (soldMatch) {
+      let soldVal = toNumber(soldMatch[1]);
+      if (metaDescription.includes('mil vendidos')) soldVal *= 1000;
+      soldFromDescription = Math.round(soldVal);
+    }
 
     const title = firstNonEmptyString(
-      extract([/"name"\s*:\s*"([^"]{5,})"/, /"title"\s*:\s*"([^"]{5,})"/]),
-      getMetaContent('og:title')?.replace(/\s*\|\s*Shopee Brasil.*$/, ''),
-      (() => {
-        const titleTag = html.match(/<title>([^<]+)<\/title>/i);
-        return titleTag?.[1]?.replace(/\s*\|\s*Shopee Brasil.*$/, '') || '';
-      })(),
+      metaTitle,
+      titleTag,
+      extract([/"name"\s*:\s*"([^"]{10,})"/, /"title"\s*:\s*"([^"]{10,})"/]),
     );
 
     const rawPrice = firstPositiveNumber(
+      metaPrice,
       extractNumber([/"price"\s*:\s*(\d+)/, /"price_max"\s*:\s*(\d+)/, /"price_min"\s*:\s*(\d+)/]),
-      toNumber(getMetaContent('product:price:amount')),
       toNumber(extract([/R\$\s*([\d.,]+)/]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
       extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"original_price"\s*:\s*(\d+)/]),
-      toNumber(getMetaContent('product:original_price:amount'))
+      toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
 
     const fallbackObject = {
@@ -508,22 +587,25 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       itemid: Number(itemid),
       name: title,
       image: firstNonEmptyString(
-        getMetaContent('og:image'),
+        metaImage,
         extract([/"image"\s*:\s*"([^"]+)"/])
       ),
       price: rawPrice,
       original_price: rawOriginalPrice,
       currency: firstNonEmptyString(
-        getMetaContent('product:price:currency'),
+        metaCurrency,
         extract([/"currency"\s*:\s*"([A-Z]{3})"/]),
         'BRL'
       ),
-      historical_sold: extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/]),
+      historical_sold: firstPositiveNumber(
+        soldFromDescription,
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/])
+      ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
       cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
       rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
-      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"shop_location"\s*:\s*"([^"]+)"/]),
+      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/]),
       stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/]),
       ctime: extractNumber([/"ctime"\s*:\s*(\d+)/]),
       brand: extract([/"brand"\s*:\s*"([^"]+)"/]),
@@ -558,6 +640,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 }
 
 function hasUsefulProductData(product: any): boolean {
+  // Accept if we have title + price, or title + any sales/rating data
   return Boolean(product?.title) && (toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0);
 }
 
