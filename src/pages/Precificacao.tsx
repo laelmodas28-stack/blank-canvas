@@ -400,6 +400,32 @@ export default function Precificacao() {
               </div>
             </div>
           </div>
+
+          {/* Projection Inputs */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Projeção de Vendas</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Preço Médio do Mercado (R$)</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input type="number" value={marketAvgPrice} onChange={e => setMarketAvgPrice(e.target.value)} placeholder="0,00" className={`${inputClass} pl-9`} />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Meta de ROAS</label>
+                <input type="number" value={targetROAS} onChange={e => setTargetROAS(e.target.value)} placeholder="Ex: 5" className={inputClass} />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">ROAS Desejado (opcional)</label>
+                <input type="number" value={desiredROAS} onChange={e => setDesiredROAS(e.target.value)} placeholder="Ex: 4" className={inputClass} />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Estimativa de Vendas no Mês</label>
+                <input type="number" value={estimatedSales} onChange={e => setEstimatedSales(e.target.value)} placeholder="Ex: 300" className={inputClass} />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ── RIGHT: Results ── */}
