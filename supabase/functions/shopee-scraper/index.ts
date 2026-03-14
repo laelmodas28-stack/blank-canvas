@@ -442,6 +442,33 @@ function getMetaContent(html: string, name: string): string {
   return match?.[1] || '';
 }
 
+function extractJsonObjectsAfterAssignments(source: string, assignmentRegexes: RegExp[]): any[] {
+  const blocks: any[] = [];
+  const seen = new Set<string>();
+
+  for (const assignmentRegex of assignmentRegexes) {
+    const regex = assignmentRegex.global ? assignmentRegex : new RegExp(assignmentRegex.source, `${assignmentRegex.flags}g`);
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(source)) !== null) {
+      const assignmentEnd = match.index + match[0].length;
+      const objectStart = source.indexOf('{', assignmentEnd);
+      if (objectStart < 0) continue;
+
+      const jsonText = extractBalancedJson(source, objectStart);
+      if (!jsonText || seen.has(jsonText)) continue;
+
+      const parsed = tryParseJson(jsonText);
+      if (parsed) {
+        seen.add(jsonText);
+        blocks.push(parsed);
+      }
+    }
+  }
+
+  return blocks;
+}
+
 // Deep JSON extraction from HTML — prioritizes __INITIAL_STATE__ and __NEXT_DATA__
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
