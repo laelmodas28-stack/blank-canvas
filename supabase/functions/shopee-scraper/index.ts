@@ -111,6 +111,78 @@ function sumVariationStock(models: any[] | undefined): number {
   }, 0);
 }
 
+function getVariationPriceInfo(models: any[] | undefined, selectedModelId?: number) {
+  if (!Array.isArray(models) || models.length === 0) {
+    return { minRaw: 0, maxRaw: 0, selectedRaw: 0, selectedOriginalRaw: 0 };
+  }
+
+  const modelPrices: number[] = [];
+  let selectedRaw = 0;
+  let selectedOriginalRaw = 0;
+
+  for (const model of models) {
+    const rawPrice = firstPositiveNumber(model?.price, model?.price_info?.price, model?.extinfo?.price);
+    const rawOriginal = firstPositiveNumber(model?.price_before_discount, model?.price_info?.price_before_discount, rawPrice);
+
+    if (rawPrice > 0) modelPrices.push(rawPrice);
+
+    const modelId = firstPositiveNumber(model?.modelid, model?.model_id, model?.id);
+    if (selectedModelId && modelId === selectedModelId) {
+      selectedRaw = rawPrice;
+      selectedOriginalRaw = rawOriginal;
+    }
+  }
+
+  const minRaw = modelPrices.length > 0 ? Math.min(...modelPrices) : 0;
+  const maxRaw = modelPrices.length > 0 ? Math.max(...modelPrices) : 0;
+
+  return { minRaw, maxRaw, selectedRaw, selectedOriginalRaw };
+}
+
+function extractSelectedModelIdFromUrl(rawUrl?: string): number {
+  if (!rawUrl || typeof rawUrl !== 'string') return 0;
+
+  try {
+    const parsed = new URL(rawUrl.trim());
+
+    const direct = parsed.searchParams.get('display_model_id') || parsed.searchParams.get('modelid') || parsed.searchParams.get('model_id');
+    if (direct && /^\d+$/.test(direct)) return Number(direct);
+
+    const extraParamsRaw = parsed.searchParams.get('extraParams');
+    if (extraParamsRaw) {
+      const decoded = decodeURIComponent(extraParamsRaw);
+      const extra = JSON.parse(decoded);
+      const nestedId = firstPositiveNumber(extra?.display_model_id, extra?.model_id, extra?.modelid);
+      if (nestedId > 0) return nestedId;
+    }
+  } catch {
+    // Ignore URL/JSON parsing issues.
+  }
+
+  return 0;
+}
+
+function extractVisiblePriceRangeFromHtml(html: string): { min: number; max: number } | null {
+  if (!html) return null;
+
+  // Most common visible format in Shopee BR: R$24,89 - R$33,90
+  const rangeMatch = html.match(/R\$\s*([\d.]+,[\d]{2})\s*[-–]\s*R\$\s*([\d.]+,[\d]{2})/i);
+  if (rangeMatch) {
+    const min = toNumber(rangeMatch[1]);
+    const max = toNumber(rangeMatch[2]);
+    if (min > 0 && max > 0) return { min: Math.min(min, max), max: Math.max(min, max) };
+  }
+
+  // Single price format: R$24,89
+  const singleMatch = html.match(/R\$\s*([\d.]+,[\d]{2})/i);
+  if (singleMatch) {
+    const value = toNumber(singleMatch[1]);
+    if (value > 0) return { min: value, max: value };
+  }
+
+  return null;
+}
+
 function normalizeImage(image: unknown): string {
   if (typeof image !== 'string' || !image) return '';
   if (image.startsWith('http://') || image.startsWith('https://')) return image;
@@ -232,11 +304,36 @@ function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
   const isFromLd = Boolean(item?._fromLd);
 
-  // For price, prioritize price_min (current selling price) over price
-  const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price_min_before_discount);
-  const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price_max_before_discount);
-  const rawPrice = firstPositiveNumber(rawPriceMin, item?.price, rawPriceMax, item?.current_price);
-  const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.price_before_discount_min, item?.original_price);
+  const modelsArray = item?.models || item?.variations || item?.model_list || item?.tier_variations_models;
+  const selectedModelId = firstPositiveNumber(item?._selectedModelId, item?.selected_model_id, item?.display_model_id);
+  const variationPriceInfo = getVariationPriceInfo(modelsArray, selectedModelId);
+
+  // For price, prioritize selected model price, then price_min, then model min range.
+  const rawPriceMin = firstPositiveNumber(
+    variationPriceInfo.minRaw,
+    item?.price_min,
+    item?.price_min_before_discount,
+  );
+  const rawPriceMax = firstPositiveNumber(
+    variationPriceInfo.maxRaw,
+    item?.price_max,
+    item?.price_max_before_discount,
+    rawPriceMin,
+  );
+  const rawPrice = firstPositiveNumber(
+    variationPriceInfo.selectedRaw,
+    rawPriceMin,
+    item?.price,
+    item?.current_price,
+    rawPriceMax,
+  );
+  const rawOriginalPrice = firstPositiveNumber(
+    variationPriceInfo.selectedOriginalRaw,
+    item?.price_before_discount,
+    item?.price_before_discount_min,
+    item?.original_price,
+    rawPriceMax,
+  );
 
   // JSON-LD and meta tag prices are already in BRL — skip conversion
   const price = isFromLd ? Math.round(toNumber(rawPrice) * 100) / 100 : convertPrice(rawPrice);
@@ -249,21 +346,20 @@ function parseProduct(item: any) {
     : (Array.isArray(item?.rating_count) ? item.rating_count : []);
 
   const reviewCount = Math.max(
-    firstPositiveNumber(item?.cmt_count, item?.review_count, item?.comment_count),
+    firstPositiveNumber(item?.rating_count, item?.review_count, item?.cmt_count, item?.comment_count),
     toNumber(ratingCountArray[0])
   );
 
   const ratingAvg = firstPositiveNumber(item?.item_rating?.rating_star, item?.rating_star, item?.rating_average, item?.rating_avg);
 
   // Stock: sum all variation/model stocks for accurate total
-  const modelsArray = item?.models || item?.variations || item?.model_list || item?.tier_variations_models;
   const variationsStock = sumVariationStock(modelsArray);
   const directStock = firstPositiveNumber(item?.stock, item?.normal_stock, item?.current_stock);
   // Use variations stock if available (more accurate for multi-variant products), else direct stock
   const stockAvailable = variationsStock > 0 ? variationsStock : directStock;
 
-  // Sales: ALWAYS prefer historical_sold (total lifetime sales) over sold (recent period)
-  const historicalSold = firstPositiveNumber(item?.historical_sold, item?.sold, item?.sold_count, item?.item_sold, item?.sold_quantity);
+  // Sales: use historical_sold only (do not trust transient sold fields)
+  const historicalSold = firstPositiveNumber(item?.historical_sold, item?.historicalSold);
   const likedCount = firstPositiveNumber(item?.liked_count, item?.liked, item?.favorite_count);
 
   const shopName = firstNonEmptyString(item?.shop_name, item?.shop_info?.shop_name, item?.shop_detailed?.name, item?.shop_info?.name);
@@ -481,7 +577,7 @@ function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number):
 }
 
 function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
-  const itemRegex = new RegExp(`"itemid"\\s*:\\s*${itemid}`, 'g');
+  const itemRegex = new RegExp(`"(?:itemid|item_id)"\\s*:\\s*"?${itemid}"?`, 'g');
   let match: RegExpExecArray | null;
   let bestCandidate: any | null = null;
   let bestScore = -1;
@@ -546,6 +642,52 @@ function extractJsonObjectsAfterAssignments(source: string, assignmentRegexes: R
   return blocks;
 }
 
+function extractJsonFromJsonParseAssignments(source: string, assignmentRegexes: RegExp[]): any[] {
+  const blocks: any[] = [];
+  const seen = new Set<string>();
+
+  for (const assignmentRegex of assignmentRegexes) {
+    const regex = assignmentRegex.global ? assignmentRegex : new RegExp(assignmentRegex.source, `${assignmentRegex.flags}g`);
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(source)) !== null) {
+      const assignmentEnd = match.index + match[0].length;
+      const tail = source.slice(assignmentEnd, assignmentEnd + 350000);
+      const parseCall = tail.match(/JSON\.parse\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\)/);
+      if (!parseCall?.[1]) continue;
+
+      let decoded = '';
+      const literal = parseCall[1];
+
+      try {
+        if (literal.startsWith('"')) {
+          decoded = JSON.parse(literal);
+        } else {
+          // Single-quoted JS string fallback
+          const normalized = literal
+            .slice(1, -1)
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, '\\')
+            .replace(/\"/g, '"');
+          decoded = normalized;
+        }
+      } catch {
+        continue;
+      }
+
+      if (!decoded || seen.has(decoded)) continue;
+
+      const parsed = tryParseJson(decoded);
+      if (parsed) {
+        seen.add(decoded);
+        blocks.push(parsed);
+      }
+    }
+  }
+
+  return blocks;
+}
+
 // Deep JSON extraction from HTML — prioritizes INITIAL_STATE/NEXT_DATA payloads
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
@@ -560,15 +702,18 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
   }
 
   // 2) window.* JSON assignments with balanced-brace extraction
+  const windowAssignmentPatterns = [
+    /window\.__NEXT_DATA__\s*=/g,
+    /window\.NEXT_DATA\s*=/g,
+    /window\.__INITIAL_STATE__\s*=/g,
+    /window\.INITIAL_STATE\s*=/g,
+    /window\.__PRELOADED_STATE__\s*=/g,
+    /window\.PRELOADED_STATE\s*=/g,
+  ];
+
   jsonBlocks.push(
-    ...extractJsonObjectsAfterAssignments(html, [
-      /window\.__NEXT_DATA__\s*=/g,
-      /window\.NEXT_DATA\s*=/g,
-      /window\.__INITIAL_STATE__\s*=/g,
-      /window\.INITIAL_STATE\s*=/g,
-      /window\.__PRELOADED_STATE__\s*=/g,
-      /window\.PRELOADED_STATE\s*=/g,
-    ])
+    ...extractJsonObjectsAfterAssignments(html, windowAssignmentPatterns),
+    ...extractJsonFromJsonParseAssignments(html, windowAssignmentPatterns),
   );
 
   for (const block of jsonBlocks.slice(0, 6)) {
@@ -680,7 +825,7 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
   return null;
 }
 
-function parseProductFromHtml(html: string, shopid: string, itemid: string) {
+function parseProductFromHtml(html: string, shopid: string, itemid: string, selectedModelId = 0) {
   try {
     // 0) Always extract meta tags first — they're the most reliable on Shopee
     const metaTitle = sanitizeProductTitle(getMetaContent(html, 'og:title'));
@@ -689,6 +834,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
     const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
+    const visiblePriceRange = extractVisiblePriceRangeFromHtml(html);
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
@@ -702,7 +848,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       if (!jsonItem.image) jsonItem.image = metaImage;
       if (toNumber(jsonItem.price) <= 0 && metaPrice > 0) jsonItem.price = metaPrice;
 
-      const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid) });
+      const parsed = parseProduct({ ...jsonItem, shopid: Number(shopid), itemid: Number(itemid), _selectedModelId: selectedModelId });
       
       // Even if JSON extraction got partial data, supplement with meta
       if (parsed.price <= 0 && metaPrice > 0) {
@@ -721,6 +867,13 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       }
 
       if (parsed.title || parsed.price > 0 || parsed.historicalSold > 0 || parsed.ratingCount > 0) {
+        if (visiblePriceRange && visiblePriceRange.min > 0) {
+          parsed.price = visiblePriceRange.min;
+          parsed.current_price = visiblePriceRange.min;
+          parsed.priceMin = visiblePriceRange.min;
+          parsed.priceMax = Math.max(visiblePriceRange.min, visiblePriceRange.max);
+        }
+
         console.log(`JSON extraction successful: title="${parsed.title}", price=${parsed.price}, sold=${parsed.historicalSold}`);
         return parsed;
       }
@@ -800,10 +953,10 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       ),
       historical_sold: firstPositiveNumber(
         soldFromDescription,
-        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/, /"sold_count"\s*:\s*(\d+)/]),
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/]),
       ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
-      cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
+      rating_count: extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/, /"cmt_count"\s*:\s*(\d+)/]),
       rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating_average"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
       shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"location"\s*:\s*"([^"]+)"/]),
@@ -814,6 +967,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       badge_icon_type: html.includes('"badge_icon_type":1') ? 1 : 0,
       is_preferred_plus_seller: html.includes('preferred_plus') || html.includes('shopee_verified'),
       is_official_shop: html.includes('official_shop') || html.includes('official-store'),
+      _selectedModelId: selectedModelId,
     };
 
     let parsed = parseProduct(fallbackObject);
@@ -838,22 +992,46 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
           fallbackObject.name,
           extract([/"item_name"\s*:\s*"([^"]+)"/, /"product_title"\s*:\s*"([^"]+)"/]),
         )),
-        price: firstPositiveNumber(
+        price_min: firstPositiveNumber(
           fallbackObject.price,
-          extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+          extractNumber([/"price_min"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+        ),
+        price_max: firstPositiveNumber(
+          extractNumber([/"price_max"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_max"\s*:\s*(\d+)/]),
+          fallbackObject.price,
         ),
         historical_sold: firstPositiveNumber(
           fallbackObject.historical_sold,
-          extractNumber([/"item_sold"\s*:\s*(\d+)/, /"sold_quantity"\s*:\s*(\d+)/]),
+          extractNumber([/"historical_sold"\s*:\s*(\d+)/]),
         ),
-        cmt_count: firstPositiveNumber(
-          fallbackObject.cmt_count,
+        rating_count: firstPositiveNumber(
+          fallbackObject.rating_count,
           extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
         ),
       });
 
       if (hasUsefulProductData(alternateParsed)) {
         parsed = alternateParsed;
+      }
+    }
+
+    // Validate/override price using visible page price when available
+    if (visiblePriceRange && visiblePriceRange.min > 0) {
+      const visibleMin = visiblePriceRange.min;
+      const visibleMax = visiblePriceRange.max > 0 ? visiblePriceRange.max : visibleMin;
+      const currentPrice = toNumber(parsed.price);
+      const mismatch = currentPrice > 0 && Math.abs(currentPrice - visibleMin) / visibleMin > 0.35;
+
+      if (mismatch || currentPrice <= 0) {
+        parsed.price = visibleMin;
+        parsed.current_price = visibleMin;
+        parsed.priceMin = visibleMin;
+        parsed.priceMax = Math.max(visibleMin, visibleMax);
+
+        if (toNumber(parsed.originalPrice) <= 0 || toNumber(parsed.originalPrice) < parsed.price) {
+          parsed.originalPrice = parsed.priceMax;
+          parsed.original_price = parsed.priceMax;
+        }
       }
     }
 
@@ -1093,7 +1271,7 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 }
 
 // Primary: Try Shopee's internal item API (most accurate data source)
-async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<any | null> {
+async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedModelId = 0): Promise<any | null> {
   const apiUrls = [
     `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
     `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
@@ -1125,7 +1303,7 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<a
       if (!itemData.itemid) itemData.itemid = Number(itemid);
       if (!itemData.shopid) itemData.shopid = Number(shopid);
 
-      const parsed = parseProduct(itemData);
+      const parsed = parseProduct({ ...itemData, _selectedModelId: selectedModelId });
       const result = enrichProductData(parsed);
 
       if (hasUsefulProductData(result)) {
@@ -1145,8 +1323,10 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<a
 }
 
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
+  const selectedModelId = extractSelectedModelIdFromUrl(sourceUrl);
+
   // 1) Try Shopee's direct item API first (most accurate)
-  const apiResult = await fetchFromShopeeItemApi(shopid, itemid);
+  const apiResult = await fetchFromShopeeItemApi(shopid, itemid, selectedModelId);
   if (apiResult) return apiResult;
 
   await delay(500 + Math.random() * 500);
@@ -1169,7 +1349,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       if (!html) continue;
 
       console.log(`Fetched HTML size: ${html.length} chars`);
-      const parsed = parseProductFromHtml(html, shopid, itemid);
+      const parsed = parseProductFromHtml(html, shopid, itemid, selectedModelId);
       const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
@@ -1188,7 +1368,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
     if (renderedHtml) {
-      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
+      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid, selectedModelId);
       const result = parsed ? enrichProductData(parsed) : null;
       if (result && hasUsefulProductData(result)) {
         console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
@@ -1500,10 +1680,12 @@ Deno.serve(async (req) => {
         );
       }
 
-      const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
-      const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
-      let product = cached || liveProduct;
-      const fromCache = Boolean(cached);
+      // Always prioritize live extraction for real-time accuracy.
+      // Use cache only as a fallback when live extraction is blocked.
+      const liveProduct = await fetchProductDetails(extractedShopid, extractedItemid, url);
+      const cached = liveProduct ? null : await getCachedProduct(supabase, extractedShopid, extractedItemid);
+      let product = liveProduct || cached;
+      const fromCache = !liveProduct && Boolean(cached);
 
       if (!hasUsefulProductData(product)) {
         return new Response(
@@ -1627,10 +1809,12 @@ Deno.serve(async (req) => {
       if (!shopid || !itemid) {
         return new Response(JSON.stringify({ success: false, error: 'shopid e itemid são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      const cached2 = await getCachedProduct(supabase, shopid, itemid);
-      if (cached2) return new Response(JSON.stringify({ success: true, data: cached2, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      // Always try live first for exact listing values; fallback to cache if blocked.
+      const liveProduct = await fetchProductDetails(shopid, itemid);
+      const cached2 = liveProduct ? null : await getCachedProduct(supabase, shopid, itemid);
+      const product = liveProduct || cached2;
+      const fromCache = !liveProduct && Boolean(cached2);
 
-      const product = await fetchProductDetails(shopid, itemid);
       if (!product || !hasUsefulProductData(product)) {
         return new Response(
           JSON.stringify({
@@ -1641,8 +1825,11 @@ Deno.serve(async (req) => {
         );
       }
 
-      await saveToCache(supabase, product, 0);
-      return new Response(JSON.stringify({ success: true, data: product, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!fromCache) {
+        await saveToCache(supabase, product, 0);
+      }
+
+      return new Response(JSON.stringify({ success: true, data: product, product, fromCache }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ success: false, error: 'Ação inválida. Use: analyze_link, search, ou product_details' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
