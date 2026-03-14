@@ -322,30 +322,94 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
   return null;
 }
 
-// Fetch product data through a scraping proxy (ScraperAPI, ScrapingBee, etc.)
+// Fetch product data through a scraping proxy
 async function fetchViaScrapingProxy(url: string): Promise<string | null> {
   const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
-  if (!scraperApiKey) return null;
 
-  try {
-    console.log('Trying scraping proxy...');
-    const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    const response = await fetch(proxyUrl, { signal: controller.signal });
-    clearTimeout(timeout);
+  // 1) ScraperAPI (paid, most reliable, renders JS)
+  if (scraperApiKey) {
+    try {
+      console.log('Trying ScraperAPI proxy...');
+      const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35000);
+      const response = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeout);
 
-    if (response.ok) {
-      const html = await response.text();
-      if (html && html.length > 1000) {
-        console.log(`Scraping proxy returned ${html.length} chars`);
-        return html;
+      if (response.ok) {
+        const html = await response.text();
+        if (html && html.length > 1000) {
+          console.log(`ScraperAPI returned ${html.length} chars`);
+          return html;
+        }
+      } else {
+        console.log(`ScraperAPI returned ${response.status}`);
       }
-    } else {
-      console.log(`Scraping proxy returned ${response.status}`);
+    } catch (error) {
+      console.log('ScraperAPI failed:', error);
     }
-  } catch (error) {
-    console.log('Scraping proxy failed:', error);
+  }
+
+  // 2) Try fetching the Shopee item API through a CORS/proxy service
+  // Extract shopid/itemid from URL to call API through proxy
+  const idsMatch = url.match(/-i\.(\d+)\.(\d+)/);
+  if (idsMatch) {
+    const [, shopid, itemid] = idsMatch;
+    const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
+
+    // Try allorigins proxy (free, no JS rendering but API calls work)
+    try {
+      console.log('Trying allorigins proxy for API...');
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(proxyUrl, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+      });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const text = await response.text();
+        if (text && text.includes('itemid')) {
+          console.log(`allorigins API proxy returned ${text.length} chars`);
+          // Return as pseudo-HTML with embedded JSON for our parser
+          return `<script id="__NEXT_DATA__" type="application/json">${text}</script>`;
+        }
+      } else {
+        console.log(`allorigins proxy returned ${response.status}`);
+      }
+    } catch (error) {
+      console.log('allorigins proxy failed:', error);
+    }
+
+    // Try corsproxy.io
+    try {
+      console.log('Trying corsproxy for API...');
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(proxyUrl, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const text = await response.text();
+        if (text && text.includes('itemid')) {
+          console.log(`corsproxy returned ${text.length} chars`);
+          return `<script id="__NEXT_DATA__" type="application/json">${text}</script>`;
+        }
+      } else {
+        console.log(`corsproxy returned ${response.status}`);
+      }
+    } catch (error) {
+      console.log('corsproxy failed:', error);
+    }
   }
 
   return null;
