@@ -706,65 +706,43 @@ Deno.serve(async (req) => {
         item = await fetchShopeeApi(ids.shopid, ids.itemid);
       }
 
-      // If API completely fails, try cache
+      // If API completely fails, try cache (fresh first, then stale)
       if (!item) {
-        const cached = await getFromCache(ids.shopid, ids.itemid);
-        if (cached) {
-          console.log('Using cached data');
-          const product = {
-            title: cached.titulo,
-            price: cached.preco,
-            priceMin: cached.preco,
-            priceMax: cached.preco,
-            originalPrice: cached.preco,
-            historicalSold: cached.vendas,
-            stock: cached.estoque || 0,
-            ratingCount: cached.avaliacoes,
-            ratingAvg: cached.avaliacao_media || 0,
-            shopName: cached.nome_loja || '',
-            shopid: cached.shopid,
-            itemid: cached.itemid,
-            image: '',
-            score: cached.score_oportunidade || 0,
-            liked: 0,
-            brand: '',
-            category: cached.categoria || '',
-            isPreferredSeller: false,
-            sellerStatus: 'Normal Seller',
-          };
-
-          const { analysis, metrics } = computeAnalysis({
-            current_price: cached.preco,
-            total_sales: cached.vendas,
-            rating_average: cached.avaliacao_media || 0,
-            review_count: cached.avaliacoes,
-            stock_available: cached.estoque || 0,
-            likes: 0,
-            shop_name: cached.nome_loja || '',
-            shop_location: '',
-            shop_rating: 0,
-            seller_status: 'Normal Seller',
-          }, []);
-
+        const freshCache = await getFromCache(ids.shopid, ids.itemid, 12);
+        if (freshCache) {
+          console.log('Using fresh cache data');
+          const payload = buildAnalyzeResponseFromCache(freshCache, 'cache');
           const history = await getHistory(ids.shopid, ids.itemid);
-          if (history.length > 0) analysis.history = history;
-
-          return new Response(JSON.stringify({
-            success: true,
-            product,
-            competitors: [],
-            metrics,
-            analysis,
-            dataSource: 'cache',
-            fromCache: true,
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          if (history.length > 0) payload.analysis.history = history;
+          return new Response(JSON.stringify(payload), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
 
-        // STEP 9: Complete failure
+        const staleCache = await getFromCache(ids.shopid, ids.itemid, 0);
+        if (staleCache) {
+          console.log('Using stale cache data');
+          const payload = buildAnalyzeResponseFromCache(staleCache, 'cache_stale');
+          const history = await getHistory(ids.shopid, ids.itemid);
+          if (history.length > 0) payload.analysis.history = history;
+          return new Response(JSON.stringify(payload), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const hasScraperApi = Boolean(Deno.env.get('SCRAPER_API_KEY'));
+
+        // Return structured non-500 payload so frontend can show message without runtime crash
         return new Response(JSON.stringify({
           success: false,
-          error: 'Não foi possível obter dados do produto. A Shopee pode estar bloqueando requisições do servidor. Tente novamente em alguns minutos.',
-        }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          error: hasScraperApi
+            ? 'Não foi possível obter dados do produto no momento. Tente novamente em alguns minutos.'
+            : 'Não foi possível obter dados do produto. Configure o secret SCRAPER_API_KEY para contornar o bloqueio da Shopee.',
+          blockedByShopee: true,
+          requiresScraperApi: !hasScraperApi,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       // STEP 3-6: Extract structured data
