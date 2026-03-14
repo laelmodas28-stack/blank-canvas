@@ -143,6 +143,12 @@ export default function Precificacao() {
   const [desiredMargin, setDesiredMargin] = useState("");
   const [useMarginCalc, setUseMarginCalc] = useState(false);
 
+  // New projection fields
+  const [marketAvgPrice, setMarketAvgPrice] = useState("");
+  const [targetROAS, setTargetROAS] = useState("");
+  const [desiredROAS, setDesiredROAS] = useState("");
+  const [estimatedSales, setEstimatedSales] = useState("");
+
   const cost = parseFloat(costPrice) || 0;
   const tax = parseFloat(taxRate) || 0;
   const marginTarget = parseFloat(desiredMargin) || 0;
