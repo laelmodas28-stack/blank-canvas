@@ -406,6 +406,8 @@ function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number):
 function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
   const itemRegex = new RegExp(`"itemid"\\s*:\\s*${itemid}`, 'g');
   let match: RegExpExecArray | null;
+  let bestCandidate: any | null = null;
+  let bestScore = -1;
 
   while ((match = itemRegex.exec(script)) !== null) {
     let start = script.lastIndexOf('{', match.index);
@@ -416,9 +418,13 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
 
       const candidate = tryParseJson(candidateText);
       if (candidate) {
-        const found = deepFindProduct(candidate, itemid, shopid) || candidate;
-        if (toNumber(found?.itemid) === itemid && (toNumber(found?.shopid) === shopid || toNumber(found?.shopid) === 0)) {
-          return found;
+        const resolvedCandidate = deepFindProduct(candidate, itemid, shopid) || candidate;
+        if (toNumber(resolvedCandidate?.itemid) === itemid && (toNumber(resolvedCandidate?.shopid) === shopid || toNumber(resolvedCandidate?.shopid) === 0)) {
+          const score = scoreProductCandidate(resolvedCandidate, itemid, shopid);
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = resolvedCandidate;
+          }
         }
       }
 
@@ -427,7 +433,7 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
     }
   }
 
-  return null;
+  return bestCandidate;
 }
 
 // Extract meta tag content from HTML
