@@ -319,26 +319,88 @@ function extractBalancedJson(source: string, startIndex: number): string | null 
   return null;
 }
 
-// Deep search for a product object by itemid in a nested structure
-function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number, depth = 0): any | null {
-  if (depth > 10 || !obj || typeof obj !== 'object') return null;
+function scoreProductCandidate(candidate: any, targetItemid: number, targetShopid?: number): number {
+  if (!candidate || typeof candidate !== 'object') return 0;
+
+  const itemId = toNumber(candidate?.itemid);
+  const shopId = toNumber(candidate?.shopid);
+  const title = sanitizeProductTitle(firstNonEmptyString(candidate?.name, candidate?.title, candidate?.item_name));
+
+  const itemMatchScore = itemId === targetItemid ? 10 : 0;
+  const shopMatchScore = !targetShopid ? 3 : (shopId === targetShopid ? 6 : (!shopId ? 2 : 0));
+  const titleScore = title.length >= 8 ? 4 : 0;
+  const priceScore = firstPositiveNumber(candidate?.price, candidate?.price_min, candidate?.price_max, candidate?.current_price, candidate?.price_before_discount) > 0 ? 6 : 0;
+  const soldScore = firstPositiveNumber(candidate?.historical_sold, candidate?.sold, candidate?.sold_count, candidate?.item_sold) > 0 ? 4 : 0;
+  const ratingScore = firstPositiveNumber(candidate?.item_rating?.rating_star, candidate?.rating_star, candidate?.rating_avg, candidate?.rating_average) > 0 ? 3 : 0;
+  const reviewScore = firstPositiveNumber(candidate?.cmt_count, candidate?.review_count, candidate?.rating_count) > 0 ? 2 : 0;
+  const stockScore = firstPositiveNumber(candidate?.stock, candidate?.normal_stock, candidate?.current_stock) > 0 ? 2 : 0;
+  const imageScore = firstNonEmptyString(candidate?.image, candidate?.images?.[0], candidate?.thumbnail) ? 1 : 0;
+
+  return itemMatchScore + shopMatchScore + titleScore + priceScore + soldScore + ratingScore + reviewScore + stockScore + imageScore;
+}
+
+function collectProductCandidates(
+  obj: any,
+  targetItemid: number,
+  targetShopid?: number,
+  depth = 0,
+  seen = new WeakSet<object>(),
+  out: any[] = [],
+): any[] {
+  if (depth > 14 || !obj || typeof obj !== 'object') return out;
+  if (seen.has(obj)) return out;
+  seen.add(obj);
 
   const itemIdCandidate = toNumber(obj?.itemid);
   const shopIdCandidate = toNumber(obj?.shopid);
-  const looksLikeProduct = Boolean(obj?.name || obj?.title || obj?.price || obj?.historical_sold || obj?.stock);
 
-  if (itemIdCandidate === targetItemid && looksLikeProduct) {
+  if (itemIdCandidate === targetItemid) {
     if (!targetShopid || !shopIdCandidate || shopIdCandidate === targetShopid) {
-      return obj;
+      out.push(obj);
     }
   }
 
-  for (const key of Object.keys(obj)) {
-    const result = deepFindProduct(obj[key], targetItemid, targetShopid, depth + 1);
-    if (result) return result;
+  const embeddedNodes = [obj?.item, obj?.item_basic, obj?.itemDetail, obj?.item_data, obj?.data?.item, obj?.item_info];
+  for (const node of embeddedNodes) {
+    if (node && typeof node === 'object' && toNumber(node?.itemid) === targetItemid) {
+      const nodeShopId = toNumber(node?.shopid);
+      if (!targetShopid || !nodeShopId || nodeShopId === targetShopid) {
+        out.push(node);
+      }
+    }
   }
 
-  return null;
+  if (Array.isArray(obj)) {
+    for (const entry of obj) {
+      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out);
+    }
+    return out;
+  }
+
+  for (const key of Object.keys(obj)) {
+    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out);
+  }
+
+  return out;
+}
+
+// Deep search for the best product object by itemid in a nested structure
+function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number): any | null {
+  const candidates = collectProductCandidates(obj, targetItemid, targetShopid);
+  if (candidates.length === 0) return null;
+
+  let bestCandidate: any | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const score = scoreProductCandidate(candidate, targetItemid, targetShopid);
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate;
 }
 
 function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
