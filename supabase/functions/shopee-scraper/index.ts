@@ -449,6 +449,11 @@ async function saveToCache(supabase: any, product: any, score: number) {
 }
 
 async function fetchProductDetails(shopid: string, itemid: string) {
+  const htmlHeaders = {
+    ...getHeaders('/'),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  };
+
   const strategies: { label: string; fn: () => Promise<any> }[] = [
     {
       label: 'v4 API',
@@ -478,12 +483,13 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       fn: async () => {
         await delay(800 + Math.random() * 700);
         const url = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, {
-          ...getHeaders('/'),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        });
+        const response = await fetchWithRetry(url, htmlHeaders);
         if (!response.ok) return null;
         const html = await response.text();
+        console.log(`HTML page size: ${html.length} chars`);
+        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
+        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
+        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
         return parseProductFromHtml(html, shopid, itemid);
       }
     },
@@ -492,13 +498,26 @@ async function fetchProductDetails(shopid: string, itemid: string) {
       fn: async () => {
         await delay(600 + Math.random() * 500);
         const url = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
-        const response = await fetchWithRetry(url, {
-          ...getHeaders('/'),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        });
+        const response = await fetchWithRetry(url, htmlHeaders);
         if (!response.ok) return null;
         const html = await response.text();
         return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
+      label: 'Mobile web API',
+      fn: async () => {
+        await delay(500 + Math.random() * 500);
+        const mobileHeaders = {
+          ...getHeaders('/'),
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        };
+        const url = `https://shopee.com.br/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
+        const response = await fetchWithRetry(url, mobileHeaders, 2);
+        if (!response.ok) return null;
+        const json = await response.json();
+        const item = json.data || json.item;
+        return item ? parseProduct(item) : null;
       }
     },
   ];
