@@ -250,7 +250,7 @@ async function fetchShopeeApi(shopid: string, itemid: string): Promise<any> {
         const html = await res.text();
         console.log(`HTML size: ${html.length} chars`);
         const item = extractItemFromHtml(html);
-        if (item) {
+        if (item && hasCriticalProductFields(item)) {
           console.log('Success: extracted from HTML proxy');
           return item;
         }
