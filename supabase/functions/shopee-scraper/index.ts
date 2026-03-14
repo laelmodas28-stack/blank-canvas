@@ -1093,51 +1093,55 @@ Deno.serve(async (req) => {
         );
       }
 
-      const extractedShopid = match[1];
-      const extractedItemid = match[2];
+      const extractedShopid = ids.shopid;
+      const extractedItemid = ids.itemid;
 
       const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
-      let product;
-      let fromCache = false;
+      let product = cached || await fetchProductDetails(extractedShopid, extractedItemid);
+      let fromCache = Boolean(cached);
 
-      if (cached) {
-        console.log('Using cached product data');
-        product = cached;
-        fromCache = true;
-      } else {
-        product = await fetchProductDetails(extractedShopid, extractedItemid);
-      }
+      product = enrichProductData(product);
 
-      // Validate we have meaningful data
-      const hasData = product.price > 0 || product.historicalSold > 0 || product.ratingCount > 0;
-      if (!hasData && !product.title) {
+      if (!hasUsefulProductData(product)) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Não foi possível extrair dados deste produto. A Shopee pode ter bloqueado a requisição. Tente novamente em alguns minutos.',
+            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
           }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      const keywords = product.title.split(/\s+/).filter((w: string) => w.length > 3).slice(0, 4).join(' ');
-      await delay(600 + Math.random() * 600);
-      const competitors = await searchProducts(keywords, 50);
-      const metrics = calculateMarketMetrics(competitors, product.price);
+      const keywords = product.title.split(/\s+/).filter((w: string) => w.length > 3).slice(0, 5).join(' ');
+      await delay(500 + Math.random() * 500);
+      let competitors = await searchProducts(keywords, 50, { shopid: extractedShopid, itemid: extractedItemid });
+      competitors = competitors.filter((entry: any) => !(entry.shopid === product.shopid && entry.itemid === product.itemid));
 
-      // Extended analysis
+      let metrics = calculateMarketMetrics(competitors, product.price);
+      if (metrics.competitors === 0 && product.price > 0) {
+        metrics = {
+          avgPrice: product.price,
+          minPrice: product.price,
+          maxPrice: product.price,
+          avgSales: product.historicalSold,
+          avgRating: product.ratingAvg,
+          competitors: 0,
+          estimatedRevenue: Math.round(product.price * Math.max(1, product.historicalSold)),
+          opportunityScore: calculateOpportunityScore(product.historicalSold, 1, product.ratingAvg, 1),
+        };
+      }
+
       const performanceScore = calculatePerformanceScore(product, competitors);
       const classification = classifyProduct(performanceScore);
-      const salesMetrics = estimateSalesMetrics(product);
 
-      // Revenue estimation
+      await saveToCache(supabase, product, performanceScore);
+      const history = await getHistoricalRecords(supabase, extractedShopid, extractedItemid);
+      const salesMetrics = estimateSalesMetrics(product, history);
+
       const estimatedRevenue = Math.round(product.price * product.historicalSold);
       const monthlyRevenue = Math.round(product.price * salesMetrics.salesLast30);
-
-      // Market demand score
       const demandScore = calculateMarketDemandScore(product, metrics, salesMetrics);
 
-      // Sentiment from rating distribution
       const rd = product.ratingDetail || [];
       const total = rd[0] || product.ratingCount || 1;
       const sentiment = {
@@ -1145,11 +1149,6 @@ Deno.serve(async (req) => {
         neutral: rd[3] ? Math.round((rd[3] / total) * 100) : 15,
         negative: rd[1] ? Math.round(((rd[1] + (rd[2] || 0)) / total) * 100) : (product.ratingAvg < 3 ? 40 : 5),
       };
-
-      // Historical records for trend
-      const history = await getHistoricalRecords(supabase, extractedShopid, extractedItemid);
-
-      if (!fromCache) await saveToCache(supabase, product, performanceScore);
 
       return new Response(
         JSON.stringify({
@@ -1168,6 +1167,7 @@ Deno.serve(async (req) => {
               rating: product.shopRating,
               followers: product.shopFollowers,
               responseRate: product.shopResponseRate,
+              status: product.sellerStatus,
               isPreferred: product.isPreferredSeller,
             },
             revenue: {
@@ -1176,10 +1176,17 @@ Deno.serve(async (req) => {
               dailyEstimated: Math.round(product.price * salesMetrics.salesPerDay),
             },
             demandScore,
+            insights: {
+              salesVelocity: salesMetrics.salesPerDay,
+              demandLevel: getDemandLevel(demandScore),
+              competitionLevel: getCompetitionLevel(metrics.competitors),
+              number_of_competing_listings: metrics.competitors,
+              average_market_price: Math.round(metrics.avgPrice * 100) / 100,
+            },
             history: history.map((h: any) => ({
               date: h.data_coleta,
-              price: parseFloat(h.preco),
-              sold: h.vendas,
+              price: toNumber(h.preco),
+              sold: toNumber(h.vendas),
             })),
           },
           fromCache,
