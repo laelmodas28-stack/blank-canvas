@@ -39,7 +39,11 @@ function delay(ms: number) {
 }
 
 function convertPrice(raw: number): number {
-  return raw / 100000;
+  if (raw <= 0) return 0;
+  // Shopee prices: if > 100000 it's in microcents, otherwise might be cents or real
+  if (raw > 100000) return raw / 100000;
+  if (raw > 1000) return raw / 100;
+  return raw;
 }
 
 async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
@@ -67,15 +71,25 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
 
 function parseProduct(item: any) {
   const ctime = item.ctime || item.cmt_time || 0;
+  const price = convertPrice(item.price || item.price_max || 0);
+  const priceMin = convertPrice(item.price_min || item.price || 0);
+  const priceMax = convertPrice(item.price_max || item.price || 0);
+  const originalPrice = convertPrice(item.price_before_discount || item.original_price || 0);
+  const discount = originalPrice > 0 && price > 0 && originalPrice > price
+    ? Math.round(((originalPrice - price) / originalPrice) * 100)
+    : (item.raw_discount || item.discount || 0);
+
   return {
     title: item.name || item.title || '',
-    price: convertPrice(item.price || item.price_max || 0),
-    priceMin: convertPrice(item.price_min || item.price || 0),
-    priceMax: convertPrice(item.price_max || item.price || 0),
+    price,
+    priceMin,
+    priceMax,
+    originalPrice: originalPrice > 0 ? originalPrice : price,
+    discount,
     historicalSold: item.historical_sold || item.sold || 0,
     stock: item.stock || 0,
     ratingCount: item.cmt_count || item.item_rating?.rating_count?.[0] || 0,
-    ratingAvg: item.item_rating?.rating_star || 0,
+    ratingAvg: item.item_rating?.rating_star || item.rating_star || 0,
     category: item.categories?.[item.categories.length - 1]?.display_name || item.catid?.toString() || '',
     shopName: item.shop_name || item.shop_location || '',
     shopid: item.shopid,
@@ -89,48 +103,153 @@ function parseProduct(item: any) {
     liked: item.liked_count || item.liked || 0,
     viewCount: item.view_count || 0,
     ratingDetail: item.item_rating?.rating_count || [],
+    isPreferredSeller: item.shopee_verified || item.is_preferred_plus_seller || item.badge_icon_type === 1 || false,
+    brand: item.brand || '',
   };
+}
+
+// Deep JSON extraction from HTML — tries multiple patterns
+function extractJsonFromHtml(html: string): any | null {
+  // Pattern 1: Server-side rendered initial state
+  const patterns = [
+    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/,
+    /"itemData"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
+    /"item"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
+    /pdp_data\s*=\s*(\{[\s\S]*?\});\s*<\/script>/,
+    /"productDetail"\s*:\s*(\{[\s\S]*?\})\s*[,}]/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        // Navigate to the item data
+        const item = parsed?.item || parsed?.data?.item || parsed?.itemData || parsed?.productDetail?.item || parsed;
+        if (item && (item.itemid || item.name || item.title)) {
+          return item;
+        }
+      } catch {
+        // JSON parse failed, try next pattern
+      }
+    }
+  }
+  return null;
 }
 
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
-    const jsonMatch = html.match(/"item":\s*(\{[^}]{100,}?\})/s)
-      || html.match(/"itemData":\s*(\{[^}]{100,}?\})/s);
-    if (jsonMatch) {
-      try {
-        const data = JSON.parse(jsonMatch[1]);
-        return parseProduct({ ...data, shopid: parseInt(shopid), itemid: parseInt(itemid) });
-      } catch {}
+    // Try deep JSON extraction first
+    const jsonItem = extractJsonFromHtml(html);
+    if (jsonItem) {
+      const product = parseProduct({ ...jsonItem, shopid: parseInt(shopid), itemid: parseInt(itemid) });
+      if (product.title || product.price > 0) return product;
     }
+
+    // Fallback: regex-based extraction from embedded JSON fragments
+    const extract = (patterns: RegExp[]): string => {
+      for (const p of patterns) {
+        const m = html.match(p);
+        if (m?.[1]) return m[1];
+      }
+      return '';
+    };
+
+    const extractNum = (patterns: RegExp[]): number => {
+      const v = extract(patterns);
+      return v ? parseFloat(v) : 0;
+    };
+
     const getMetaContent = (name: string) => {
       const m = html.match(new RegExp(`<meta[^>]*(?:property|name)="${name}"[^>]*content="([^"]*)"`, 'i'));
       return m?.[1] || '';
     };
-    const title = getMetaContent('og:title') || getMetaContent('title') || '';
-    const priceStr = getMetaContent('product:price:amount') || '0';
+
+    const title = extract([
+      /"name"\s*:\s*"([^"]{10,})"/,
+      /"title"\s*:\s*"([^"]{10,})"/,
+    ]) || getMetaContent('og:title')?.replace(' | Shopee Brasil', '') || '';
+
+    // Price extraction with multiple strategies
+    const rawPrice = extractNum([
+      /"price"\s*:\s*(\d+)/,
+      /"price_max"\s*:\s*(\d+)/,
+    ]);
+    const metaPrice = parseFloat(getMetaContent('product:price:amount') || '0');
+    const priceFromText = (() => {
+      const m = html.match(/R\$\s*([\d.,]+)/);
+      return m ? parseFloat(m[1].replace(/\./g, '').replace(',', '.')) : 0;
+    })();
+
+    const price = rawPrice > 0 ? convertPrice(rawPrice) : (metaPrice || priceFromText);
+
+    const originalPrice = convertPrice(extractNum([
+      /"price_before_discount"\s*:\s*(\d+)/,
+      /"original_price"\s*:\s*(\d+)/,
+    ]));
+
+    const historicalSold = extractNum([
+      /"historical_sold"\s*:\s*(\d+)/,
+      /"sold"\s*:\s*(\d+)/,
+    ]);
+
+    const stock = extractNum([/"stock"\s*:\s*(\d+)/]);
+
+    const ratingAvg = extractNum([
+      /"rating_star"\s*:\s*([\d.]+)/,
+      /"rating"\s*:\s*([\d.]+)/,
+    ]);
+
+    const ratingCount = extractNum([
+      /"cmt_count"\s*:\s*(\d+)/,
+      /"rating_count"\s*:\s*\[(\d+)/,
+    ]);
+
+    const ctime = extractNum([/"ctime"\s*:\s*(\d+)/]);
+    const liked = extractNum([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]);
+    const viewCount = extractNum([/"view_count"\s*:\s*(\d+)/]);
+
+    const shopName = extract([/"shop_name"\s*:\s*"([^"]+)"/]) || '';
+    const shopLocation = extract([/"shop_location"\s*:\s*"([^"]+)"/]) || '';
+    const shopRating = extractNum([/"shop_rating"\s*:\s*([\d.]+)/]);
+    const shopFollowers = extractNum([/"follower_count"\s*:\s*(\d+)/]);
+    const shopResponseRate = extractNum([/"response_rate"\s*:\s*(\d+)/]);
+
     const image = getMetaContent('og:image') || '';
-    const priceMatch = html.match(/R\$\s*([\d.,]+)/);
-    const price = parseFloat(priceStr) || (priceMatch ? parseFloat(priceMatch[1].replace('.', '').replace(',', '.')) : 0);
-    const ratingMatch = html.match(/"rating_star"\s*:\s*([\d.]+)/);
-    const ratingAvg = ratingMatch ? parseFloat(ratingMatch[1]) : 0;
-    const soldMatch = html.match(/"historical_sold"\s*:\s*(\d+)/) || html.match(/"sold"\s*:\s*(\d+)/);
-    const historicalSold = soldMatch ? parseInt(soldMatch[1]) : 0;
-    const stockMatch = html.match(/"stock"\s*:\s*(\d+)/);
-    const stock = stockMatch ? parseInt(stockMatch[1]) : 0;
-    const ratingCountMatch = html.match(/"cmt_count"\s*:\s*(\d+)/) || html.match(/"rating_count"\s*:\s*\[(\d+)/);
-    const ratingCount = ratingCountMatch ? parseInt(ratingCountMatch[1]) : 0;
-    const ctimeMatch = html.match(/"ctime"\s*:\s*(\d+)/);
-    const ctime = ctimeMatch ? parseInt(ctimeMatch[1]) : 0;
-    if (!title && !price) return null;
+    const brand = extract([/"brand"\s*:\s*"([^"]+)"/]) || '';
+    const category = extract([/"display_name"\s*:\s*"([^"]+)"/]) || '';
+
+    const isPreferred = html.includes('preferred_plus') || html.includes('shopee_verified') || html.includes('"badge_icon_type":1');
+    const discount = extractNum([/"raw_discount"\s*:\s*(\d+)/, /"discount"\s*:\s*(\d+)/]);
+
+    if (!title && price <= 0 && historicalSold <= 0) return null;
+
     return {
-      title: title.replace(' | Shopee Brasil', ''),
-      price, priceMin: price, priceMax: price,
-      historicalSold, stock, ratingCount, ratingAvg,
-      category: '', shopName: '',
-      shopid: parseInt(shopid), itemid: parseInt(itemid),
-      image, ctime,
-      shopRating: 0, shopFollowers: 0, shopResponseRate: 0, shopLocation: '',
-      liked: 0, viewCount: 0, ratingDetail: [],
+      title,
+      price,
+      priceMin: price,
+      priceMax: price,
+      originalPrice: originalPrice > 0 ? originalPrice : price,
+      discount,
+      historicalSold,
+      stock,
+      ratingCount,
+      ratingAvg,
+      category,
+      shopName,
+      shopid: parseInt(shopid),
+      itemid: parseInt(itemid),
+      image,
+      ctime,
+      shopRating,
+      shopFollowers,
+      shopResponseRate,
+      shopLocation,
+      liked,
+      viewCount,
+      ratingDetail: [],
+      isPreferredSeller: isPreferred,
+      brand,
     };
   } catch (err) {
     console.error('HTML parsing failed:', err);
@@ -152,14 +271,29 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
     const row = data[0];
     return {
       title: row.titulo, price: parseFloat(row.preco), priceMin: parseFloat(row.preco), priceMax: parseFloat(row.preco),
+      originalPrice: parseFloat(row.preco),
+      discount: 0,
       historicalSold: row.vendas, stock: row.estoque || 0, ratingCount: row.avaliacoes,
       ratingAvg: parseFloat(row.avaliacao_media || '0'), category: row.categoria || '',
       shopName: row.nome_loja || '', shopid: row.shopid, itemid: row.itemid, image: '',
       _cached: true, ctime: 0, shopRating: 0, shopFollowers: 0, shopResponseRate: 0,
       shopLocation: '', liked: 0, viewCount: 0, ratingDetail: [],
+      isPreferredSeller: false, brand: '',
     };
   }
   return null;
+}
+
+// Get historical records for trend analysis
+async function getHistoricalRecords(supabase: any, shopid: string, itemid: string) {
+  const { data } = await supabase
+    .from('produtos_analisados')
+    .select('preco, vendas, data_coleta')
+    .eq('shopid', parseInt(shopid))
+    .eq('itemid', parseInt(itemid))
+    .order('data_coleta', { ascending: true })
+    .limit(100);
+  return data || [];
 }
 
 async function saveToCache(supabase: any, product: any, score: number) {
@@ -176,28 +310,75 @@ async function saveToCache(supabase: any, product: any, score: number) {
 }
 
 async function fetchProductDetails(shopid: string, itemid: string) {
-  try {
-    const v4Url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-    console.log('Strategy 1: v4 API');
-    const response = await fetchWithRetry(v4Url, getHeaders(`/product-i.${shopid}.${itemid}`));
-    if (response.ok) { const json = await response.json(); const item = json.data || json.item; if (item) return parseProduct(item); }
-  } catch (err) { console.log('v4 API failed:', err); }
+  const strategies: { label: string; fn: () => Promise<any> }[] = [
+    {
+      label: 'v4 API',
+      fn: async () => {
+        const url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
+        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
+        if (!response.ok) return null;
+        const json = await response.json();
+        const item = json.data || json.item;
+        return item ? parseProduct(item) : null;
+      }
+    },
+    {
+      label: 'v2 API',
+      fn: async () => {
+        await delay(500 + Math.random() * 500);
+        const url = `${SHOPEE_BASE}/api/v2/item/get?itemid=${itemid}&shopid=${shopid}`;
+        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
+        if (!response.ok) return null;
+        const json = await response.json();
+        const item = json.data || json.item;
+        return item ? parseProduct(item) : null;
+      }
+    },
+    {
+      label: 'HTML scraping (product page)',
+      fn: async () => {
+        await delay(800 + Math.random() * 700);
+        const url = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
+        const response = await fetchWithRetry(url, {
+          ...getHeaders('/'),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        });
+        if (!response.ok) return null;
+        const html = await response.text();
+        return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+    {
+      label: 'HTML scraping (alternate URL)',
+      fn: async () => {
+        await delay(600 + Math.random() * 500);
+        const url = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
+        const response = await fetchWithRetry(url, {
+          ...getHeaders('/'),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        });
+        if (!response.ok) return null;
+        const html = await response.text();
+        return parseProductFromHtml(html, shopid, itemid);
+      }
+    },
+  ];
 
-  try {
-    const v2Url = `${SHOPEE_BASE}/api/v2/item/get?itemid=${itemid}&shopid=${shopid}`;
-    console.log('Strategy 2: v2 API'); await delay(500 + Math.random() * 500);
-    const response = await fetchWithRetry(v2Url, getHeaders(`/product-i.${shopid}.${itemid}`));
-    if (response.ok) { const json = await response.json(); const item = json.data || json.item; if (item) return parseProduct(item); }
-  } catch (err) { console.log('v2 API failed:', err); }
+  for (const strategy of strategies) {
+    try {
+      console.log(`Trying: ${strategy.label}`);
+      const result = await strategy.fn();
+      if (result && (result.price > 0 || result.historicalSold > 0 || result.ratingCount > 0)) {
+        console.log(`Success: ${strategy.label} — price=${result.price}, sold=${result.historicalSold}`);
+        return result;
+      }
+      console.log(`${strategy.label}: returned but with no useful data`);
+    } catch (err) {
+      console.log(`${strategy.label} failed:`, err);
+    }
+  }
 
-  try {
-    const pageUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-    console.log('Strategy 3: HTML scraping'); await delay(800 + Math.random() * 700);
-    const response = await fetchWithRetry(pageUrl, { ...getHeaders('/'), 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' });
-    if (response.ok) { const html = await response.text(); const parsed = parseProductFromHtml(html, shopid, itemid); if (parsed) return parsed; }
-  } catch (err) { console.log('HTML scraping failed:', err); }
-
-  throw new Error('Não foi possível obter dados do produto. A Shopee pode estar bloqueando requisições. Tente novamente em alguns minutos.');
+  throw new Error('Não foi possível obter dados do produto. A Shopee pode estar bloqueando requisições externas. Tente novamente em alguns minutos.');
 }
 
 async function searchProducts(keyword: string, limit = 50) {
@@ -239,7 +420,6 @@ function calculateOpportunityScore(avgSales: number, competitors: number, avgRat
   return Math.min(Math.max(score, 0), 100);
 }
 
-// ── Performance score for individual product ──
 function calculatePerformanceScore(product: any, competitors: any[]): number {
   const maxSales = Math.max(...competitors.map((c: any) => c.historicalSold), product.historicalSold, 1);
   const maxReviews = Math.max(...competitors.map((c: any) => c.ratingCount), product.ratingCount, 1);
@@ -251,7 +431,6 @@ function calculatePerformanceScore(product: any, competitors: any[]): number {
   return Math.min(Math.max(score, 0), 100);
 }
 
-// ── Winner classification ──
 function classifyProduct(score: number): { label: string; level: string } {
   if (score >= 80) return { label: 'Produto Vencedor', level: 'winner' };
   if (score >= 60) return { label: 'Alto Potencial', level: 'high' };
@@ -259,13 +438,11 @@ function classifyProduct(score: number): { label: string; level: string } {
   return { label: 'Baixo Potencial', level: 'low' };
 }
 
-// ── Estimate listing age and sales velocity ──
 function estimateSalesMetrics(product: any) {
   let listingAgeDays = 0;
   if (product.ctime && product.ctime > 0) {
     listingAgeDays = Math.max(1, Math.floor((Date.now() / 1000 - product.ctime) / 86400));
   } else {
-    // Estimate from sales volume
     listingAgeDays = Math.max(30, Math.round(product.historicalSold / 3));
   }
   const salesPerDay = listingAgeDays > 0 ? Math.round((product.historicalSold / listingAgeDays) * 100) / 100 : 0;
@@ -279,16 +456,37 @@ function calculateMarketMetrics(products: any[], originalPrice?: number) {
   const prices = products.map((p: any) => p.price).filter((p: number) => p > 0);
   const sales = products.map((p: any) => p.historicalSold);
   const ratings = products.map((p: any) => p.ratingAvg).filter((r: number) => r > 0);
-  const avgPrice = prices.reduce((a: number, b: number) => a + b, 0) / prices.length;
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
+  const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
+  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
   const avgSales = Math.round(sales.reduce((a: number, b: number) => a + b, 0) / sales.length);
   const avgRating = ratings.length > 0 ? ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length : 0;
   const competitors = products.length;
   const estimatedRevenue = Math.round(avgPrice * avgSales);
-  const priceVsAvg = originalPrice ? originalPrice / avgPrice : 1;
+  const priceVsAvg = originalPrice && avgPrice > 0 ? originalPrice / avgPrice : 1;
   const opportunityScore = calculateOpportunityScore(avgSales, competitors, avgRating, priceVsAvg);
   return { avgPrice, minPrice, maxPrice, avgSales, avgRating, competitors, estimatedRevenue, opportunityScore };
+}
+
+// Calculate market demand score based on multiple signals
+function calculateMarketDemandScore(product: any, metrics: any, salesMetrics: any): number {
+  let score = 0;
+  // Sales velocity weight
+  if (salesMetrics.salesPerDay >= 10) score += 30;
+  else if (salesMetrics.salesPerDay >= 3) score += 20;
+  else if (salesMetrics.salesPerDay >= 1) score += 10;
+  // Total sales volume
+  if (product.historicalSold >= 5000) score += 25;
+  else if (product.historicalSold >= 1000) score += 20;
+  else if (product.historicalSold >= 100) score += 10;
+  // Rating quality
+  if (product.ratingAvg >= 4.5 && product.ratingCount >= 50) score += 20;
+  else if (product.ratingAvg >= 4.0) score += 10;
+  // View/engagement
+  if (product.viewCount > 0) score += 10;
+  if (product.liked > 100) score += 15;
+  else if (product.liked > 10) score += 5;
+  return Math.min(score, 100);
 }
 
 Deno.serve(async (req) => {
@@ -325,6 +523,18 @@ Deno.serve(async (req) => {
         product = await fetchProductDetails(extractedShopid, extractedItemid);
       }
 
+      // Validate we have meaningful data
+      const hasData = product.price > 0 || product.historicalSold > 0 || product.ratingCount > 0;
+      if (!hasData && !product.title) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Não foi possível extrair dados deste produto. A Shopee pode ter bloqueado a requisição. Tente novamente em alguns minutos.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       const keywords = product.title.split(/\s+/).filter((w: string) => w.length > 3).slice(0, 4).join(' ');
       await delay(600 + Math.random() * 600);
       const competitors = await searchProducts(keywords, 50);
@@ -335,6 +545,13 @@ Deno.serve(async (req) => {
       const classification = classifyProduct(performanceScore);
       const salesMetrics = estimateSalesMetrics(product);
 
+      // Revenue estimation
+      const estimatedRevenue = Math.round(product.price * product.historicalSold);
+      const monthlyRevenue = Math.round(product.price * salesMetrics.salesLast30);
+
+      // Market demand score
+      const demandScore = calculateMarketDemandScore(product, metrics, salesMetrics);
+
       // Sentiment from rating distribution
       const rd = product.ratingDetail || [];
       const total = rd[0] || product.ratingCount || 1;
@@ -343,6 +560,9 @@ Deno.serve(async (req) => {
         neutral: rd[3] ? Math.round((rd[3] / total) * 100) : 15,
         negative: rd[1] ? Math.round(((rd[1] + (rd[2] || 0)) / total) * 100) : (product.ratingAvg < 3 ? 40 : 5),
       };
+
+      // Historical records for trend
+      const history = await getHistoricalRecords(supabase, extractedShopid, extractedItemid);
 
       if (!fromCache) await saveToCache(supabase, product, performanceScore);
 
@@ -363,7 +583,19 @@ Deno.serve(async (req) => {
               rating: product.shopRating,
               followers: product.shopFollowers,
               responseRate: product.shopResponseRate,
+              isPreferred: product.isPreferredSeller,
             },
+            revenue: {
+              totalEstimated: estimatedRevenue,
+              monthlyEstimated: monthlyRevenue,
+              dailyEstimated: Math.round(product.price * salesMetrics.salesPerDay),
+            },
+            demandScore,
+            history: history.map((h: any) => ({
+              date: h.data_coleta,
+              price: parseFloat(h.preco),
+              sold: h.vendas,
+            })),
           },
           fromCache,
           dataSource: fromCache ? 'cache' : 'live',
