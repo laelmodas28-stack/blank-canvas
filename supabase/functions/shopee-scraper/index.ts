@@ -966,34 +966,46 @@ async function saveToCache(supabase: any, rawProduct: any, score: number) {
 }
 
 async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null> {
-  const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
-  if (!firecrawlKey) return null;
+  const browserlessEndpoint = Deno.env.get('BROWSERLESS_RENDER_ENDPOINT');
+  const browserlessToken = Deno.env.get('BROWSERLESS_TOKEN');
 
-  try {
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${firecrawlKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        formats: ['rawHtml', 'html'],
-        waitFor: 2500,
-        onlyMainContent: false,
-      }),
-    });
+  // Primary: optional remote headless browser endpoint (if configured by secret)
+  if (browserlessEndpoint) {
+    try {
+      const response = await fetch(browserlessEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(browserlessToken ? { 'Authorization': `Bearer ${browserlessToken}` } : {}),
+        },
+        body: JSON.stringify({ url, waitUntil: 'networkidle0', timeout: 25000 }),
+      });
 
-    if (!response.ok) {
-      const payload = await response.text();
-      console.log(`Headless render failed [${response.status}]: ${payload.slice(0, 200)}`);
-      return null;
+      if (response.ok) {
+        const payload = await response.text();
+        if (payload.includes('<html') || payload.includes('itemid')) return payload;
+      }
+    } catch (error) {
+      console.log('Configured headless endpoint failed:', error);
     }
+  }
 
-    const data = await response.json();
-    return data?.data?.rawHtml || data?.data?.html || data?.rawHtml || data?.html || null;
+  // Secondary: browser-emulated HTML request + script payload extraction
+  try {
+    const response = await fetchWithRetry(url, {
+      ...getHeaders('/'),
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+    }, 1);
+
+    if (!response.ok) return null;
+    const html = await response.text();
+    return html.length > 1000 ? html : null;
   } catch (error) {
-    console.log('Headless render request failed:', error);
+    console.log('Headless-like render fallback failed:', error);
     return null;
   }
 }
