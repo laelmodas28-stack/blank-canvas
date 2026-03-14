@@ -70,6 +70,19 @@ function firstNonEmptyString(...values: unknown[]): string {
   return '';
 }
 
+function sanitizeProductTitle(value: unknown): string {
+  const cleaned = firstNonEmptyString(value)
+    .replace(/\s*([|–\-])\s*Shopee\s*Brasil.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+  if (/^shopee\s*brasil\b/i.test(cleaned)) return '';
+  if (/^ofertas\s+incr[íi]veis/i.test(cleaned)) return '';
+
+  return cleaned;
+}
+
 function firstPositiveNumber(...values: unknown[]): number {
   for (const value of values) {
     const num = toNumber(value);
@@ -195,7 +208,7 @@ function parseProduct(item: any) {
   const shopLocation = firstNonEmptyString(item?.shop_location, item?.shop_info?.shop_location, item?.shop_detailed?.shop_location, item?.shop?.location);
   const sellerStatus = getSellerStatus(item);
 
-  const normalizedTitle = firstNonEmptyString(item?.name, item?.title, item?.item_name);
+  const normalizedTitle = sanitizeProductTitle(firstNonEmptyString(item?.name, item?.title, item?.item_name));
   const normalizedImage = normalizeImage(firstNonEmptyString(item?.image, item?.images?.[0], item?.thumbnail));
   const category = extractCategory(item);
   const currency = firstNonEmptyString(item?.currency, item?.currency_code, item?.item_currency, 'BRL');
@@ -306,31 +319,95 @@ function extractBalancedJson(source: string, startIndex: number): string | null 
   return null;
 }
 
-// Deep search for a product object by itemid in a nested structure
-function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number, depth = 0): any | null {
-  if (depth > 10 || !obj || typeof obj !== 'object') return null;
+function scoreProductCandidate(candidate: any, targetItemid: number, targetShopid?: number): number {
+  if (!candidate || typeof candidate !== 'object') return 0;
+
+  const itemId = toNumber(candidate?.itemid);
+  const shopId = toNumber(candidate?.shopid);
+  const title = sanitizeProductTitle(firstNonEmptyString(candidate?.name, candidate?.title, candidate?.item_name));
+
+  const itemMatchScore = itemId === targetItemid ? 10 : 0;
+  const shopMatchScore = !targetShopid ? 3 : (shopId === targetShopid ? 6 : (!shopId ? 2 : 0));
+  const titleScore = title.length >= 8 ? 4 : 0;
+  const priceScore = firstPositiveNumber(candidate?.price, candidate?.price_min, candidate?.price_max, candidate?.current_price, candidate?.price_before_discount) > 0 ? 6 : 0;
+  const soldScore = firstPositiveNumber(candidate?.historical_sold, candidate?.sold, candidate?.sold_count, candidate?.item_sold) > 0 ? 4 : 0;
+  const ratingScore = firstPositiveNumber(candidate?.item_rating?.rating_star, candidate?.rating_star, candidate?.rating_avg, candidate?.rating_average) > 0 ? 3 : 0;
+  const reviewScore = firstPositiveNumber(candidate?.cmt_count, candidate?.review_count, candidate?.rating_count) > 0 ? 2 : 0;
+  const stockScore = firstPositiveNumber(candidate?.stock, candidate?.normal_stock, candidate?.current_stock) > 0 ? 2 : 0;
+  const imageScore = firstNonEmptyString(candidate?.image, candidate?.images?.[0], candidate?.thumbnail) ? 1 : 0;
+
+  return itemMatchScore + shopMatchScore + titleScore + priceScore + soldScore + ratingScore + reviewScore + stockScore + imageScore;
+}
+
+function collectProductCandidates(
+  obj: any,
+  targetItemid: number,
+  targetShopid?: number,
+  depth = 0,
+  seen = new WeakSet<object>(),
+  out: any[] = [],
+): any[] {
+  if (depth > 14 || !obj || typeof obj !== 'object') return out;
+  if (seen.has(obj)) return out;
+  seen.add(obj);
 
   const itemIdCandidate = toNumber(obj?.itemid);
   const shopIdCandidate = toNumber(obj?.shopid);
-  const looksLikeProduct = Boolean(obj?.name || obj?.title || obj?.price || obj?.historical_sold || obj?.stock);
 
-  if (itemIdCandidate === targetItemid && looksLikeProduct) {
+  if (itemIdCandidate === targetItemid) {
     if (!targetShopid || !shopIdCandidate || shopIdCandidate === targetShopid) {
-      return obj;
+      out.push(obj);
     }
   }
 
-  for (const key of Object.keys(obj)) {
-    const result = deepFindProduct(obj[key], targetItemid, targetShopid, depth + 1);
-    if (result) return result;
+  const embeddedNodes = [obj?.item, obj?.item_basic, obj?.itemDetail, obj?.item_data, obj?.data?.item, obj?.item_info];
+  for (const node of embeddedNodes) {
+    if (node && typeof node === 'object' && toNumber(node?.itemid) === targetItemid) {
+      const nodeShopId = toNumber(node?.shopid);
+      if (!targetShopid || !nodeShopId || nodeShopId === targetShopid) {
+        out.push(node);
+      }
+    }
   }
 
-  return null;
+  if (Array.isArray(obj)) {
+    for (const entry of obj) {
+      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out);
+    }
+    return out;
+  }
+
+  for (const key of Object.keys(obj)) {
+    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out);
+  }
+
+  return out;
+}
+
+// Deep search for the best product object by itemid in a nested structure
+function deepFindProduct(obj: any, targetItemid: number, targetShopid?: number): any | null {
+  const candidates = collectProductCandidates(obj, targetItemid, targetShopid);
+  if (candidates.length === 0) return null;
+
+  let bestCandidate: any | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const score = scoreProductCandidate(candidate, targetItemid, targetShopid);
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate;
 }
 
 function extractObjectContainingItemId(script: string, itemid: number, shopid: number): any | null {
   const itemRegex = new RegExp(`"itemid"\\s*:\\s*${itemid}`, 'g');
   let match: RegExpExecArray | null;
+  let bestCandidate: any | null = null;
+  let bestScore = -1;
 
   while ((match = itemRegex.exec(script)) !== null) {
     let start = script.lastIndexOf('{', match.index);
@@ -341,9 +418,13 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
 
       const candidate = tryParseJson(candidateText);
       if (candidate) {
-        const found = deepFindProduct(candidate, itemid, shopid) || candidate;
-        if (toNumber(found?.itemid) === itemid && (toNumber(found?.shopid) === shopid || toNumber(found?.shopid) === 0)) {
-          return found;
+        const resolvedCandidate = deepFindProduct(candidate, itemid, shopid) || candidate;
+        if (toNumber(resolvedCandidate?.itemid) === itemid && (toNumber(resolvedCandidate?.shopid) === shopid || toNumber(resolvedCandidate?.shopid) === 0)) {
+          const score = scoreProductCandidate(resolvedCandidate, itemid, shopid);
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = resolvedCandidate;
+          }
         }
       }
 
@@ -352,7 +433,7 @@ function extractObjectContainingItemId(script: string, itemid: number, shopid: n
     }
   }
 
-  return null;
+  return bestCandidate;
 }
 
 // Extract meta tag content from HTML
@@ -361,36 +442,57 @@ function getMetaContent(html: string, name: string): string {
   return match?.[1] || '';
 }
 
-// Deep JSON extraction from HTML — prioritizes __INITIAL_STATE__ and __NEXT_DATA__
+function extractJsonObjectsAfterAssignments(source: string, assignmentRegexes: RegExp[]): any[] {
+  const blocks: any[] = [];
+  const seen = new Set<string>();
+
+  for (const assignmentRegex of assignmentRegexes) {
+    const regex = assignmentRegex.global ? assignmentRegex : new RegExp(assignmentRegex.source, `${assignmentRegex.flags}g`);
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(source)) !== null) {
+      const assignmentEnd = match.index + match[0].length;
+      const objectStart = source.indexOf('{', assignmentEnd);
+      if (objectStart < 0) continue;
+
+      const jsonText = extractBalancedJson(source, objectStart);
+      if (!jsonText || seen.has(jsonText)) continue;
+
+      const parsed = tryParseJson(jsonText);
+      if (parsed) {
+        seen.add(jsonText);
+        blocks.push(parsed);
+      }
+    }
+  }
+
+  return blocks;
+}
+
+// Deep JSON extraction from HTML — prioritizes INITIAL_STATE/NEXT_DATA payloads
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
   const parsedItemid = Number(itemid);
 
   const jsonBlocks: any[] = [];
 
-  // 1) Script tag __NEXT_DATA__
-  for (const match of html.matchAll(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) {
+  // 1) Script tag payloads
+  for (const match of html.matchAll(/<script\s+id="(?:__NEXT_DATA__|NEXT_DATA)"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) {
     const parsed = tryParseJson(match[1]);
     if (parsed) jsonBlocks.push(parsed);
   }
 
-  // 2) window.__NEXT_DATA__ assignment
-  for (const match of html.matchAll(/window\.__NEXT_DATA__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
-    const parsed = tryParseJson(match[1]);
-    if (parsed) jsonBlocks.push(parsed);
-  }
-
-  // 3) window.__INITIAL_STATE__ assignment
-  for (const match of html.matchAll(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
-    const parsed = tryParseJson(match[1]);
-    if (parsed) jsonBlocks.push(parsed);
-  }
-
-  // 4) Common preload payload objects
-  for (const match of html.matchAll(/window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\})\s*;?/g)) {
-    const parsed = tryParseJson(match[1]);
-    if (parsed) jsonBlocks.push(parsed);
-  }
+  // 2) window.* JSON assignments with balanced-brace extraction
+  jsonBlocks.push(
+    ...extractJsonObjectsAfterAssignments(html, [
+      /window\.__NEXT_DATA__\s*=/g,
+      /window\.NEXT_DATA\s*=/g,
+      /window\.__INITIAL_STATE__\s*=/g,
+      /window\.INITIAL_STATE\s*=/g,
+      /window\.__PRELOADED_STATE__\s*=/g,
+      /window\.PRELOADED_STATE\s*=/g,
+    ])
+  );
 
   for (const block of jsonBlocks) {
     const commonPaths = [
@@ -401,25 +503,32 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
       block?.props?.pageProps?.product,
       block?.itemDetail,
       block?.item,
+      block?.item_basic,
       block?.data,
+      block,
     ];
+
+    let bestCandidate: any | null = null;
+    let bestScore = -1;
 
     for (const path of commonPaths) {
       const found = deepFindProduct(path, parsedItemid, parsedShopid);
-      if (found) {
-        console.log('Extracted product from embedded page JSON');
-        return found;
+      if (!found) continue;
+
+      const score = scoreProductCandidate(found, parsedItemid, parsedShopid);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = found;
       }
     }
 
-    const deepFound = deepFindProduct(block, parsedItemid, parsedShopid);
-    if (deepFound) {
-      console.log('Extracted product via deep JSON traversal');
-      return deepFound;
+    if (bestCandidate) {
+      console.log(`Extracted product from embedded page JSON (score=${bestScore})`);
+      return bestCandidate;
     }
   }
 
-  // 5) JSON-LD fallback (for price/title/image/rating)
+  // 3) JSON-LD fallback (price/title/image/rating)
   for (const match of html.matchAll(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
     const ld = tryParseJson(match[1]);
     if (!ld) continue;
@@ -428,62 +537,61 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
       ? ld.find((node: any) => node?.['@type'] === 'Product' || node?.name)
       : (ld?.['@type'] === 'Product' || ld?.name ? ld : null);
 
-    if (productNode) {
-      // Extract price from offers — can be object or array
-      let ldPrice = 0;
-      let ldOriginalPrice = 0;
-      let ldCurrency = 'BRL';
-      const offers = productNode.offers;
-      if (offers) {
-        if (Array.isArray(offers)) {
-          const firstOffer = offers[0];
-          ldPrice = firstPositiveNumber(firstOffer?.price, firstOffer?.lowPrice);
-          ldOriginalPrice = firstPositiveNumber(firstOffer?.highPrice, firstOffer?.price);
-          ldCurrency = firstNonEmptyString(firstOffer?.priceCurrency, 'BRL');
-        } else {
-          ldPrice = firstPositiveNumber(offers.price, offers.lowPrice);
-          ldOriginalPrice = firstPositiveNumber(offers.highPrice, offers.price);
-          ldCurrency = firstNonEmptyString(offers.priceCurrency, 'BRL');
-        }
+    if (!productNode) continue;
+
+    let ldPrice = 0;
+    let ldOriginalPrice = 0;
+    let ldCurrency = 'BRL';
+
+    const offers = productNode.offers;
+    if (offers) {
+      if (Array.isArray(offers)) {
+        const firstOffer = offers[0];
+        ldPrice = firstPositiveNumber(firstOffer?.price, firstOffer?.lowPrice);
+        ldOriginalPrice = firstPositiveNumber(firstOffer?.highPrice, firstOffer?.price);
+        ldCurrency = firstNonEmptyString(firstOffer?.priceCurrency, 'BRL');
+      } else {
+        ldPrice = firstPositiveNumber(offers?.price, offers?.lowPrice);
+        ldOriginalPrice = firstPositiveNumber(offers?.highPrice, offers?.price);
+        ldCurrency = firstNonEmptyString(offers?.priceCurrency, 'BRL');
       }
-
-      // Use meta tags to supplement LD data
-      const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–-]\s*Shopee\s*Brasil.*$/i, '').trim();
-      const metaImage = getMetaContent(html, 'og:image');
-      const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
-      const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), ldCurrency);
-      
-      const ldName = productNode.name || '';
-      // If LD name looks like a variation (short, has comma/slash), prefer meta title
-      const isVariationName = ldName.length < 20 && (/[,\/]/.test(ldName) || !ldName.includes(' '));
-      const finalTitle = isVariationName && metaTitle ? metaTitle : (ldName || metaTitle || '');
-      const finalPrice = firstPositiveNumber(ldPrice, metaPrice);
-      const finalImage = firstNonEmptyString(
-        Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
-        metaImage
-      );
-
-      console.log(`JSON-LD extracted: title="${finalTitle}", price=${finalPrice}, ldPrice=${ldPrice}, metaPrice=${metaPrice}`);
-
-      return {
-        itemid: parsedItemid,
-        shopid: parsedShopid,
-        name: finalTitle,
-        image: finalImage,
-        price: finalPrice,
-        original_price: firstPositiveNumber(ldOriginalPrice, finalPrice),
-        currency: metaCurrency,
-        rating_star: productNode.aggregateRating?.ratingValue ? Number(productNode.aggregateRating.ratingValue) : 0,
-        review_count: productNode.aggregateRating?.reviewCount ? Number(productNode.aggregateRating.reviewCount) : 0,
-        _fromLd: true,
-      };
     }
+
+    const metaTitle = sanitizeProductTitle(getMetaContent(html, 'og:title'));
+    const metaImage = getMetaContent(html, 'og:image');
+    const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
+    const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), ldCurrency);
+
+    const ldName = sanitizeProductTitle(productNode.name || '');
+    const isVariationName = ldName.length < 20 && (/[,\/]/.test(ldName) || !ldName.includes(' '));
+    const finalTitle = isVariationName && metaTitle ? metaTitle : firstNonEmptyString(ldName, metaTitle);
+    const finalPrice = firstPositiveNumber(ldPrice, metaPrice);
+    const finalImage = firstNonEmptyString(
+      Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
+      metaImage,
+    );
+
+    console.log(`JSON-LD extracted: title="${finalTitle}", price=${finalPrice}, ldPrice=${ldPrice}, metaPrice=${metaPrice}`);
+
+    return {
+      itemid: parsedItemid,
+      shopid: parsedShopid,
+      name: finalTitle,
+      image: finalImage,
+      price: finalPrice,
+      original_price: firstPositiveNumber(ldOriginalPrice, finalPrice),
+      currency: metaCurrency,
+      rating_star: productNode.aggregateRating?.ratingValue ? Number(productNode.aggregateRating.ratingValue) : 0,
+      review_count: productNode.aggregateRating?.reviewCount ? Number(productNode.aggregateRating.reviewCount) : 0,
+      _fromLd: true,
+    };
   }
 
-  // 6) Inline script extraction by itemid token + balanced JSON parsing
+  // 4) Inline script extraction by itemid token + balanced JSON parsing
   for (const scriptMatch of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
     const content = scriptMatch[1];
     if (!content.includes('itemid')) continue;
+
     const extracted = extractObjectContainingItemId(content, parsedItemid, parsedShopid);
     if (extracted) {
       console.log('Extracted product from inline script object');
@@ -497,12 +605,12 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
     // 0) Always extract meta tags first — they're the most reliable on Shopee
-    const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim();
+    const metaTitle = sanitizeProductTitle(getMetaContent(html, 'og:title'));
     const metaImage = getMetaContent(html, 'og:image');
     const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
-    const titleTag = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim() || '';
+    const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
@@ -565,11 +673,11 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       soldFromDescription = Math.round(soldVal);
     }
 
-    const title = firstNonEmptyString(
+    const title = sanitizeProductTitle(firstNonEmptyString(
       metaTitle,
       titleTag,
       extract([/"name"\s*:\s*"([^"]{10,})"/, /"title"\s*:\s*"([^"]{10,})"/]),
-    );
+    ));
 
     const rawPrice = firstPositiveNumber(
       metaPrice,
@@ -577,17 +685,22 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
         /"price"\s*:\s*"([\d.,]+)"/,
         /"price"\s*:\s*([\d.]+)/,
         /"price_max"\s*:\s*(\d+)/,
-        /"price_min"\s*:\s*(\d+)/
+        /"price_min"\s*:\s*(\d+)/,
+        /"priceMin"\s*:\s*(\d+)/,
+        /"priceMax"\s*:\s*(\d+)/,
+        /"price_info"\s*:\s*\{[\s\S]{0,180}?"price"\s*:\s*(\d+)/,
       ]),
-      toNumber(extract([/R\$\s*([\d.,]+)/]))
+      toNumber(extract([/R\$\s*([\d.,]+)/, /pre[çc]o[^\d]{0,12}([\d.,]+)/i]))
     );
 
     const rawOriginalPrice = firstPositiveNumber(
       extractNumber([
         /"price_before_discount"\s*:\s*"([\d.,]+)"/,
         /"price_before_discount"\s*:\s*(\d+)/,
+        /"price_before_discount_min"\s*:\s*(\d+)/,
+        /"price_min_before_discount"\s*:\s*(\d+)/,
         /"original_price"\s*:\s*"([\d.,]+)"/,
-        /"original_price"\s*:\s*(\d+)/
+        /"original_price"\s*:\s*(\d+)/,
       ]),
       toNumber(getMetaContent(html, 'product:original_price:amount'))
     );
@@ -598,25 +711,25 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       name: title,
       image: firstNonEmptyString(
         metaImage,
-        extract([/"image"\s*:\s*"([^"]+)"/])
+        extract([/"image"\s*:\s*"([^"]+)"/]),
       ),
       price: rawPrice,
       original_price: rawOriginalPrice,
       currency: firstNonEmptyString(
         metaCurrency,
         extract([/"currency"\s*:\s*"([A-Z]{3})"/]),
-        'BRL'
+        'BRL',
       ),
       historical_sold: firstPositiveNumber(
         soldFromDescription,
-        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/])
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/, /"sold_count"\s*:\s*(\d+)/]),
       ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
       cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
-      rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
+      rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating_average"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
-      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/]),
-      stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/]),
+      shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"location"\s*:\s*"([^"]+)"/]),
+      stock: extractNumber([/"stock"\s*:\s*(\d+)/, /"normal_stock"\s*:\s*(\d+)/, /"current_stock"\s*:\s*(\d+)/]),
       ctime: extractNumber([/"ctime"\s*:\s*(\d+)/]),
       brand: extract([/"brand"\s*:\s*"([^"]+)"/]),
       category_name: extract([/"display_name"\s*:\s*"([^"]+)"/, /"category_name"\s*:\s*"([^"]+)"/]),
@@ -625,7 +738,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       is_official_shop: html.includes('official_shop') || html.includes('official-store'),
     };
 
-    const parsed = parseProduct(fallbackObject);
+    let parsed = parseProduct(fallbackObject);
 
     // Estimation fallback when Shopee hides exact counts but signals exist
     if (parsed.historicalSold <= 0 && parsed.ratingCount > 0) {
@@ -638,7 +751,35 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
       parsed.stock_available = parsed.variationsStock;
     }
 
-    if (!parsed.title && parsed.price <= 0 && parsed.historicalSold <= 0) {
+    if (!hasUsefulProductData(parsed)) {
+      console.log('Primary selectors returned limited data, retrying with alternative selectors');
+
+      const alternateParsed = parseProduct({
+        ...fallbackObject,
+        name: sanitizeProductTitle(firstNonEmptyString(
+          fallbackObject.name,
+          extract([/"item_name"\s*:\s*"([^"]+)"/, /"product_title"\s*:\s*"([^"]+)"/]),
+        )),
+        price: firstPositiveNumber(
+          fallbackObject.price,
+          extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+        ),
+        historical_sold: firstPositiveNumber(
+          fallbackObject.historical_sold,
+          extractNumber([/"item_sold"\s*:\s*(\d+)/, /"sold_quantity"\s*:\s*(\d+)/]),
+        ),
+        cmt_count: firstPositiveNumber(
+          fallbackObject.cmt_count,
+          extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
+        ),
+      });
+
+      if (hasUsefulProductData(alternateParsed)) {
+        parsed = alternateParsed;
+      }
+    }
+
+    if (!hasUsefulProductData(parsed)) {
       return null;
     }
 
@@ -650,13 +791,20 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string) {
 }
 
 function hasUsefulProductData(product: any): boolean {
-  // Accept if we have title + price, or title + any sales/rating data
-  return Boolean(product?.title) && (toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0);
+  const title = sanitizeProductTitle(firstNonEmptyString(product?.title, product?.product_title, product?.name));
+  const hasCoreSignals = toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0;
+  const hasIds = toNumber(product?.shopid) > 0 && toNumber(product?.itemid) > 0;
+
+  // We only accept product data with valid IDs + meaningful title + any commercial signal.
+  return Boolean(title) && hasIds && hasCoreSignals;
 }
 
 function enrichProductData(rawProduct: any): any {
   const product = { ...rawProduct };
 
+  product.title = sanitizeProductTitle(firstNonEmptyString(product.title, product.product_title, product.name));
+  product.shopid = toNumber(product.shopid);
+  product.itemid = toNumber(product.itemid);
   product.price = toNumber(product.price);
   product.originalPrice = toNumber(product.originalPrice || product.original_price);
   product.historicalSold = toNumber(product.historicalSold || product.historical_sold);
@@ -818,34 +966,46 @@ async function saveToCache(supabase: any, rawProduct: any, score: number) {
 }
 
 async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null> {
-  const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
-  if (!firecrawlKey) return null;
+  const browserlessEndpoint = Deno.env.get('BROWSERLESS_RENDER_ENDPOINT');
+  const browserlessToken = Deno.env.get('BROWSERLESS_TOKEN');
 
-  try {
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${firecrawlKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        formats: ['rawHtml', 'html'],
-        waitFor: 2500,
-        onlyMainContent: false,
-      }),
-    });
+  // Primary: optional remote headless browser endpoint (if configured by secret)
+  if (browserlessEndpoint) {
+    try {
+      const response = await fetch(browserlessEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(browserlessToken ? { 'Authorization': `Bearer ${browserlessToken}` } : {}),
+        },
+        body: JSON.stringify({ url, waitUntil: 'networkidle0', timeout: 25000 }),
+      });
 
-    if (!response.ok) {
-      const payload = await response.text();
-      console.log(`Headless render failed [${response.status}]: ${payload.slice(0, 200)}`);
-      return null;
+      if (response.ok) {
+        const payload = await response.text();
+        if (payload.includes('<html') || payload.includes('itemid')) return payload;
+      }
+    } catch (error) {
+      console.log('Configured headless endpoint failed:', error);
     }
+  }
 
-    const data = await response.json();
-    return data?.data?.rawHtml || data?.data?.html || data?.rawHtml || data?.html || null;
+  // Secondary: browser-emulated HTML request + script payload extraction
+  try {
+    const response = await fetchWithRetry(url, {
+      ...getHeaders('/'),
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+    }, 1);
+
+    if (!response.ok) return null;
+    const html = await response.text();
+    return html.length > 1000 ? html : null;
   } catch (error) {
-    console.log('Headless render request failed:', error);
+    console.log('Headless-like render fallback failed:', error);
     return null;
   }
 }
@@ -1188,19 +1348,46 @@ function getCompetitionLevel(count: number): 'high' | 'medium' | 'low' {
   return 'low';
 }
 
+function isValidIdSegment(value: string): boolean {
+  return /^\d{5,20}$/.test(value) && Number(value) > 0;
+}
+
 function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | null {
-  if (!rawUrl) return null;
-  const patterns = [/i\.(\d+)\.(\d+)/, /shopid=(\d+).*itemid=(\d+)/, /itemid=(\d+).*shopid=(\d+)/];
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
 
-  for (const pattern of patterns) {
-    const match = rawUrl.match(pattern);
-    if (!match) continue;
+  const candidates = [rawUrl.trim()];
+  try {
+    const parsed = new URL(rawUrl.trim());
+    candidates.push(parsed.pathname);
+    candidates.push(`${parsed.pathname}${parsed.search}`);
 
-    if (pattern.source.startsWith('itemid=')) {
-      return { shopid: match[2], itemid: match[1] };
+    const qShopid = parsed.searchParams.get('shopid') || parsed.searchParams.get('shop_id');
+    const qItemid = parsed.searchParams.get('itemid') || parsed.searchParams.get('item_id');
+    if (qShopid && qItemid && isValidIdSegment(qShopid) && isValidIdSegment(qItemid)) {
+      return { shopid: qShopid, itemid: qItemid };
     }
+  } catch {
+    // Ignore URL parse errors and continue with regex extraction.
+  }
 
-    return { shopid: match[1], itemid: match[2] };
+  const patterns = [
+    /(?:^|[^\w])-?i\.(\d+)\.(\d+)(?:[/?#&._-]|$)/i,
+    /shopid=(\d+).*itemid=(\d+)/i,
+    /itemid=(\d+).*shopid=(\d+)/i,
+  ];
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const match = candidate.match(pattern);
+      if (!match) continue;
+
+      const shopid = pattern.source.startsWith('itemid=') ? match[2] : match[1];
+      const itemid = pattern.source.startsWith('itemid=') ? match[1] : match[2];
+
+      if (isValidIdSegment(shopid) && isValidIdSegment(itemid)) {
+        return { shopid, itemid };
+      }
+    }
   }
 
   return null;
@@ -1227,6 +1414,13 @@ Deno.serve(async (req) => {
 
       const extractedShopid = ids.shopid;
       const extractedItemid = ids.itemid;
+
+      if (!isValidIdSegment(extractedShopid) || !isValidIdSegment(extractedItemid)) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Could not extract valid shopid/itemid from the provided Shopee link.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
       const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
