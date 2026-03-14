@@ -1393,10 +1393,17 @@ Deno.serve(async (req) => {
 
     // ── ANALYZE LINK ──
     if (action === 'analyze_link') {
+      if (!isValidShopeeProductUrl(url || '')) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid Shopee URL. Expected format: https://shopee.com.br/...-i.<shopid>.<itemid>' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       const ids = extractShopeeIds(url || '');
       if (!ids) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Invalid Shopee product link. Expected format: https://shopee.com.br/...-i.<shopid>.<itemid>' }),
+          JSON.stringify({ success: false, error: 'Could not extract shopid and itemid from this Shopee URL.' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -1406,7 +1413,7 @@ Deno.serve(async (req) => {
 
       if (!isValidIdSegment(extractedShopid) || !isValidIdSegment(extractedItemid)) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Could not extract valid shopid/itemid from the provided Shopee link.' }),
+          JSON.stringify({ success: false, error: 'Could not extract valid shopid and itemid from this Shopee URL.' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
