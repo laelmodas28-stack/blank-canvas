@@ -439,7 +439,7 @@ async function searchProducts(keyword: string, limit: number, filters?: any) {
   for (const endpoint of endpoints) {
     try {
       console.log(`Search: trying ${endpoint.substring(0, 60)}...`);
-      const res = await fetchWithTimeout(endpoint, API_HEADERS, 10000);
+      const res = await fetchWithTimeout(endpoint, getApiHeaders(), 10000);
       if (res.ok) {
         const json = await res.json();
         const items = json?.items || json?.data?.items || [];
