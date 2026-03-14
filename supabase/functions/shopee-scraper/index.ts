@@ -1219,10 +1219,9 @@ Deno.serve(async (req) => {
       const extractedItemid = ids.itemid;
 
       const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
-      let product = cached || await fetchProductDetails(extractedShopid, extractedItemid);
-      let fromCache = Boolean(cached);
-
-      product = enrichProductData(product);
+      const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
+      let product = cached || liveProduct;
+      const fromCache = Boolean(cached);
 
       if (!hasUsefulProductData(product)) {
         return new Response(
