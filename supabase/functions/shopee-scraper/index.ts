@@ -286,16 +286,8 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
   throw new Error('Max retries exceeded');
 }
 
-function getShopeeHtmlHeaders(refererPath = '/') {
-  return {
-    ...getHeaders(refererPath),
-    'User-Agent': 'Mozilla/5.0',
-    'Accept': 'text/html',
-  };
-}
-
 async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise<string | null> {
-  const headers = getShopeeHtmlHeaders(refererPath);
+  const headers = getHeaders(refererPath, 'html');
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -325,6 +317,35 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
       console.log(`HTML fetch error for ${url}:`, error);
       return null;
     }
+  }
+
+  return null;
+}
+
+// Fetch product data through a scraping proxy (ScraperAPI, ScrapingBee, etc.)
+async function fetchViaScrapingProxy(url: string): Promise<string | null> {
+  const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
+  if (!scraperApiKey) return null;
+
+  try {
+    console.log('Trying scraping proxy...');
+    const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const response = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      const html = await response.text();
+      if (html && html.length > 1000) {
+        console.log(`Scraping proxy returned ${html.length} chars`);
+        return html;
+      }
+    } else {
+      console.log(`Scraping proxy returned ${response.status}`);
+    }
+  } catch (error) {
+    console.log('Scraping proxy failed:', error);
   }
 
   return null;
