@@ -209,7 +209,7 @@ async function fetchShopeeApi(shopid: string, itemid: string): Promise<any> {
     if (directHtml.ok) {
       const html = await directHtml.text();
       const item = extractItemFromHtml(html);
-      if (item) {
+      if (item && hasCriticalProductFields(item)) {
         console.log('Success: extracted from direct HTML');
         return item;
       }
