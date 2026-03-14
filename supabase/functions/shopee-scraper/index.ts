@@ -1346,7 +1346,18 @@ Deno.serve(async (req) => {
       }
       const cached2 = await getCachedProduct(supabase, shopid, itemid);
       if (cached2) return new Response(JSON.stringify({ success: true, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
       const product = await fetchProductDetails(shopid, itemid);
+      if (!product || !hasUsefulProductData(product)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       await saveToCache(supabase, product, 0);
       return new Response(JSON.stringify({ success: true, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
