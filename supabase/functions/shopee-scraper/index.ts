@@ -761,8 +761,9 @@ Deno.serve(async (req) => {
       if (!validateData(productData)) {
         return new Response(JSON.stringify({
           success: false,
-          error: 'Dados do produto estão incompletos. Tente novamente.',
-        }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          error: 'Dados do produto estão inconsistentes (preço/estoque/vendas). Tente novamente.',
+          blockedByShopee: true,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       // Save to DB
