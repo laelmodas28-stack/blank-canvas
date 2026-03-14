@@ -79,6 +79,8 @@ function sanitizeProductTitle(value: unknown): string {
   if (!cleaned) return '';
   if (/^shopee\s*brasil\b/i.test(cleaned)) return '';
   if (/^ofertas\s+incr[íi]veis/i.test(cleaned)) return '';
+  if (/shopee[_\s-]*domain|captcha|access denied|verifique se voc[êe] [ée] humano/i.test(cleaned)) return '';
+  if (cleaned.length < 8) return '';
 
   return cleaned;
 }
@@ -170,6 +172,50 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
     }
   }
   throw new Error('Max retries exceeded');
+}
+
+function getShopeeHtmlHeaders(refererPath = '/') {
+  return {
+    ...getHeaders(refererPath),
+    'User-Agent': 'Mozilla/5.0',
+    'Accept': 'text/html',
+  };
+}
+
+async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise<string | null> {
+  const headers = getShopeeHtmlHeaders(refererPath);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const html = await response.text();
+        return html || null;
+      }
+
+      if (attempt === 0) {
+        await delay(450 + Math.random() * 450);
+        continue;
+      }
+
+      console.log(`HTML fetch failed (${response.status}) for ${url}`);
+      return null;
+    } catch (error) {
+      if (attempt === 0) {
+        await delay(450 + Math.random() * 450);
+        continue;
+      }
+
+      console.log(`HTML fetch error for ${url}:`, error);
+      return null;
+    }
+  }
+
+  return null;
 }
 
 function parseProduct(item: any) {
@@ -339,6 +385,13 @@ function scoreProductCandidate(candidate: any, targetItemid: number, targetShopi
   return itemMatchScore + shopMatchScore + titleScore + priceScore + soldScore + ratingScore + reviewScore + stockScore + imageScore;
 }
 
+type CandidateTraversalState = {
+  visited: number;
+  maxVisited: number;
+  maxDepth: number;
+  maxCandidates: number;
+};
+
 function collectProductCandidates(
   obj: any,
   targetItemid: number,
@@ -346,10 +399,14 @@ function collectProductCandidates(
   depth = 0,
   seen = new WeakSet<object>(),
   out: any[] = [],
+  state: CandidateTraversalState = { visited: 0, maxVisited: 3500, maxDepth: 10, maxCandidates: 120 },
 ): any[] {
-  if (depth > 14 || !obj || typeof obj !== 'object') return out;
-  if (seen.has(obj)) return out;
+  if (!obj || typeof obj !== 'object') return out;
+  if (depth > state.maxDepth || seen.has(obj)) return out;
+  if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) return out;
+
   seen.add(obj);
+  state.visited += 1;
 
   const itemIdCandidate = toNumber(obj?.itemid);
   const shopIdCandidate = toNumber(obj?.shopid);
@@ -357,11 +414,13 @@ function collectProductCandidates(
   if (itemIdCandidate === targetItemid) {
     if (!targetShopid || !shopIdCandidate || shopIdCandidate === targetShopid) {
       out.push(obj);
+      if (out.length >= state.maxCandidates) return out;
     }
   }
 
   const embeddedNodes = [obj?.item, obj?.item_basic, obj?.itemDetail, obj?.item_data, obj?.data?.item, obj?.item_info];
   for (const node of embeddedNodes) {
+    if (out.length >= state.maxCandidates) return out;
     if (node && typeof node === 'object' && toNumber(node?.itemid) === targetItemid) {
       const nodeShopId = toNumber(node?.shopid);
       if (!targetShopid || !nodeShopId || nodeShopId === targetShopid) {
@@ -372,13 +431,15 @@ function collectProductCandidates(
 
   if (Array.isArray(obj)) {
     for (const entry of obj) {
-      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out);
+      if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) break;
+      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out, state);
     }
     return out;
   }
 
   for (const key of Object.keys(obj)) {
-    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out);
+    if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) break;
+    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out, state);
   }
 
   return out;
@@ -494,7 +555,7 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
     ])
   );
 
-  for (const block of jsonBlocks) {
+  for (const block of jsonBlocks.slice(0, 6)) {
     const commonPaths = [
       block?.props?.pageProps?.initialState,
       block?.props?.pageProps?.item,
@@ -587,10 +648,11 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
     };
   }
 
-  // 4) Inline script extraction by itemid token + balanced JSON parsing
-  for (const scriptMatch of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+  // 4) Inline script extraction by itemid token + balanced JSON parsing (bounded to avoid CPU exhaustion)
+  const inlineScriptMatches = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)).slice(0, 24);
+  for (const scriptMatch of inlineScriptMatches) {
     const content = scriptMatch[1];
-    if (!content.includes('itemid')) continue;
+    if (!content || content.length > 250000 || !content.includes('itemid')) continue;
 
     const extracted = extractObjectContainingItemId(content, parsedItemid, parsedShopid);
     if (extracted) {
@@ -794,9 +856,12 @@ function hasUsefulProductData(product: any): boolean {
   const title = sanitizeProductTitle(firstNonEmptyString(product?.title, product?.product_title, product?.name));
   const hasCoreSignals = toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0;
   const hasIds = toNumber(product?.shopid) > 0 && toNumber(product?.itemid) > 0;
+  const hasStrongSignals = Boolean(firstNonEmptyString(product?.image, product?.product_image, product?.shopName, product?.shop_name))
+    || toNumber(product?.stock) > 0
+    || toNumber(product?.historicalSold) > 0
+    || toNumber(product?.ratingCount) > 0;
 
-  // We only accept product data with valid IDs + meaningful title + any commercial signal.
-  return Boolean(title) && hasIds && hasCoreSignals;
+  return Boolean(title) && hasIds && hasCoreSignals && hasStrongSignals;
 }
 
 function enrichProductData(rawProduct: any): any {
@@ -867,18 +932,19 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
   if (!data || data.length === 0) return null;
 
   const row = data[0];
+  const normalizedTitle = sanitizeProductTitle(row.titulo);
   const price = toNumber(row.preco);
   const sales = toNumber(row.vendas);
   const reviews = toNumber(row.avaliacoes);
 
   // Use cache only when row has valid content
-  if (!row.titulo || (price <= 0 && sales <= 0 && reviews <= 0)) {
+  if (!normalizedTitle || (price <= 0 && sales <= 0 && reviews <= 0)) {
     console.log('Cached row is invalid — skipping cache');
     return null;
   }
 
   return enrichProductData({
-    title: row.titulo,
+    title: normalizedTitle,
     price,
     priceMin: price,
     priceMax: price,
@@ -1011,142 +1077,50 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 }
 
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
-  const htmlHeaders = {
-    ...getHeaders('/'),
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  };
-
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
-  const strategies: { label: string; fn: () => Promise<any> }[] = [
-    {
-      label: 'v4 API',
-      fn: async () => {
-        const url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'v2 API',
-      fn: async () => {
-        await delay(500 + Math.random() * 500);
-        const url = `${SHOPEE_BASE}/api/v2/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'Mobile web API',
-      fn: async () => {
-        await delay(500 + Math.random() * 500);
-        const mobileHeaders = {
-          ...getHeaders('/'),
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        };
-        const url = `https://shopee.com.br/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, mobileHeaders, 2);
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'HTML scraping (incoming URL)',
-      fn: async () => {
-        if (!incomingUrl) return null;
-        await delay(650 + Math.random() * 650);
-        const response = await fetchWithRetry(incomingUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        console.log(`Incoming URL HTML size: ${html.length} chars`);
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'HTML scraping (product page)',
-      fn: async () => {
-        await delay(700 + Math.random() * 700);
-        const response = await fetchWithRetry(canonicalProductUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        console.log(`HTML page size: ${html.length} chars`);
-        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
-        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
-        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'HTML scraping (alternate URL)',
-      fn: async () => {
-        await delay(600 + Math.random() * 500);
-        const response = await fetchWithRetry(alternateProductUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'Headless render (dynamic JS)',
-      fn: async () => {
-        const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
-        if (!renderedHtml) return null;
-        return parseProductFromHtml(renderedHtml, shopid, itemid);
-      }
-    },
-  ];
+  const candidateUrls = [incomingUrl, canonicalProductUrl, alternateProductUrl].filter(Boolean);
+  const visitedUrls = new Set<string>();
 
-  for (const strategy of strategies) {
+  for (const targetUrl of candidateUrls) {
+    if (visitedUrls.has(targetUrl)) continue;
+    visitedUrls.add(targetUrl);
+
     try {
-      console.log(`Trying: ${strategy.label}`);
-      const rawResult = await strategy.fn();
-      const result = rawResult ? enrichProductData(rawResult) : null;
+      console.log(`Trying HTML scrape: ${targetUrl}`);
+      const html = await fetchHtmlWithSingleRetry(targetUrl, `/product-i.${shopid}.${itemid}`);
+      if (!html) continue;
+
+      console.log(`Fetched HTML size: ${html.length} chars`);
+      const parsed = parseProductFromHtml(html, shopid, itemid);
+      const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: ${strategy.label} — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
         return result;
       }
 
-      console.log(`${strategy.label}: returned but with no useful data`);
+      console.log('HTML scrape returned partial data; trying next source');
     } catch (err) {
-      console.log(`${strategy.label} failed:`, err);
+      console.log('HTML scrape failed:', err);
     }
   }
 
-  // Last fallback: infer title from URL slug (without inventing fake price/sales)
-  if (incomingUrl) {
-    try {
-      const parsed = new URL(incomingUrl);
-      const slugPart = decodeURIComponent(parsed.pathname.split('/').pop() || '')
-        .replace(/-i\.\d+\.\d+.*/i, '')
-        .replace(/[-_]+/g, ' ')
-        .trim();
-
-      if (slugPart && slugPart.length >= 8) {
-        console.log('Using URL slug fallback title only');
-        const minimal = enrichProductData(parseProduct({
-          itemid: Number(itemid),
-          shopid: Number(shopid),
-          name: slugPart,
-          currency: 'BRL',
-        }));
-
-        // Return minimal only if title exists; caller decides if sufficient
-        if (minimal?.title) return minimal;
+  try {
+    console.log('Trying headless render fallback (JS rendered)');
+    const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
+    if (renderedHtml) {
+      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
+      const result = parsed ? enrichProductData(parsed) : null;
+      if (result && hasUsefulProductData(result)) {
+        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        return result;
       }
-    } catch {
-      // no-op
     }
+  } catch (err) {
+    console.log('Headless render fallback failed:', err);
   }
 
   return null;
@@ -1352,6 +1326,26 @@ function isValidIdSegment(value: string): boolean {
   return /^\d{5,20}$/.test(value) && Number(value) > 0;
 }
 
+function isValidShopeeProductUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+
+  try {
+    const parsed = new URL(rawUrl.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (!hostname.includes('shopee')) return false;
+
+    const hasSlugIds = /-i\.\d+\.\d+(?:$|[/?#&._-])/i.test(`${parsed.pathname}${parsed.search}`);
+    const hasQueryIds = Boolean(
+      (parsed.searchParams.get('shopid') || parsed.searchParams.get('shop_id'))
+      && (parsed.searchParams.get('itemid') || parsed.searchParams.get('item_id'))
+    );
+
+    return hasSlugIds || hasQueryIds;
+  } catch {
+    return false;
+  }
+}
+
 function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | null {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
 
@@ -1371,7 +1365,8 @@ function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | 
   }
 
   const patterns = [
-    /(?:^|[^\w])-?i\.(\d+)\.(\d+)(?:[/?#&._-]|$)/i,
+    /-i\.(\d+)\.(\d+)(?:$|[/?#&._-])/i,
+    /(?:^|[^\w])i\.(\d+)\.(\d+)(?:$|[/?#&._-])/i,
     /shopid=(\d+).*itemid=(\d+)/i,
     /itemid=(\d+).*shopid=(\d+)/i,
   ];
@@ -1404,10 +1399,17 @@ Deno.serve(async (req) => {
 
     // ── ANALYZE LINK ──
     if (action === 'analyze_link') {
+      if (!isValidShopeeProductUrl(url || '')) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid Shopee URL. Expected format: https://shopee.com.br/...-i.<shopid>.<itemid>' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       const ids = extractShopeeIds(url || '');
       if (!ids) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Invalid Shopee product link. Expected format: https://shopee.com.br/...-i.<shopid>.<itemid>' }),
+          JSON.stringify({ success: false, error: 'Could not extract shopid and itemid from this Shopee URL.' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -1417,7 +1419,7 @@ Deno.serve(async (req) => {
 
       if (!isValidIdSegment(extractedShopid) || !isValidIdSegment(extractedItemid)) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Could not extract valid shopid/itemid from the provided Shopee link.' }),
+          JSON.stringify({ success: false, error: 'Could not extract valid shopid and itemid from this Shopee URL.' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -1431,9 +1433,9 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+            error: 'Failed to extract Shopee product data',
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
@@ -1478,6 +1480,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
+          data: product,
           product,
           competitors: competitors.slice(0, 20),
           metrics,
@@ -1549,21 +1552,21 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: false, error: 'shopid e itemid são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       const cached2 = await getCachedProduct(supabase, shopid, itemid);
-      if (cached2) return new Response(JSON.stringify({ success: true, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (cached2) return new Response(JSON.stringify({ success: true, data: cached2, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       const product = await fetchProductDetails(shopid, itemid);
       if (!product || !hasUsefulProductData(product)) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+            error: 'Failed to extract Shopee product data',
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       await saveToCache(supabase, product, 0);
-      return new Response(JSON.stringify({ success: true, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ success: true, data: product, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ success: false, error: 'Ação inválida. Use: analyze_link, search, ou product_details' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
