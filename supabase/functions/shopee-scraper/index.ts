@@ -421,14 +421,50 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
       : (ld?.['@type'] === 'Product' || ld?.name ? ld : null);
 
     if (productNode) {
+      // Extract price from offers — can be object or array
+      let ldPrice = 0;
+      let ldOriginalPrice = 0;
+      let ldCurrency = 'BRL';
+      const offers = productNode.offers;
+      if (offers) {
+        if (Array.isArray(offers)) {
+          const firstOffer = offers[0];
+          ldPrice = firstPositiveNumber(firstOffer?.price, firstOffer?.lowPrice);
+          ldOriginalPrice = firstPositiveNumber(firstOffer?.highPrice, firstOffer?.price);
+          ldCurrency = firstNonEmptyString(firstOffer?.priceCurrency, 'BRL');
+        } else {
+          ldPrice = firstPositiveNumber(offers.price, offers.lowPrice);
+          ldOriginalPrice = firstPositiveNumber(offers.highPrice, offers.price);
+          ldCurrency = firstNonEmptyString(offers.priceCurrency, 'BRL');
+        }
+      }
+
+      // Use meta tags to supplement LD data
+      const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–-]\s*Shopee\s*Brasil.*$/i, '').trim();
+      const metaImage = getMetaContent(html, 'og:image');
+      const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
+      const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), ldCurrency);
+      
+      const ldName = productNode.name || '';
+      // If LD name looks like a variation (short, has comma/slash), prefer meta title
+      const isVariationName = ldName.length < 20 && (/[,\/]/.test(ldName) || !ldName.includes(' '));
+      const finalTitle = isVariationName && metaTitle ? metaTitle : (ldName || metaTitle || '');
+      const finalPrice = firstPositiveNumber(ldPrice, metaPrice);
+      const finalImage = firstNonEmptyString(
+        Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
+        metaImage
+      );
+
+      console.log(`JSON-LD extracted: title="${finalTitle}", price=${finalPrice}, ldPrice=${ldPrice}, metaPrice=${metaPrice}`);
+
       return {
         itemid: parsedItemid,
         shopid: parsedShopid,
-        name: productNode.name || '',
-        image: Array.isArray(productNode.image) ? productNode.image[0] : productNode.image,
-        price: productNode.offers?.price ? Number(productNode.offers.price) : 0,
-        original_price: productNode.offers?.highPrice ? Number(productNode.offers.highPrice) : 0,
-        currency: productNode.offers?.priceCurrency || 'BRL',
+        name: finalTitle,
+        image: finalImage,
+        price: finalPrice,
+        original_price: firstPositiveNumber(ldOriginalPrice, finalPrice),
+        currency: metaCurrency,
         rating_star: productNode.aggregateRating?.ratingValue ? Number(productNode.aggregateRating.ratingValue) : 0,
         review_count: productNode.aggregateRating?.reviewCount ? Number(productNode.aggregateRating.reviewCount) : 0,
         _fromLd: true,
