@@ -972,17 +972,42 @@ function classifyProduct(score: number): { label: string; level: string } {
   return { label: 'Baixo Potencial', level: 'low' };
 }
 
-function estimateSalesMetrics(product: any) {
-  let listingAgeDays = 0;
-  if (product.ctime && product.ctime > 0) {
-    listingAgeDays = Math.max(1, Math.floor((Date.now() / 1000 - product.ctime) / 86400));
-  } else {
-    listingAgeDays = Math.max(30, Math.round(product.historicalSold / 3));
-  }
-  const salesPerDay = listingAgeDays > 0 ? Math.round((product.historicalSold / listingAgeDays) * 100) / 100 : 0;
-  const salesLast30 = Math.round(salesPerDay * 30);
-  const salesLast7 = Math.round(salesPerDay * 7);
-  return { listingAgeDays, salesPerDay, salesLast30, salesLast7 };
+function estimateSalesMetrics(product: any, history: any[] = []) {
+  const now = Date.now();
+  const sortedHistory = [...history]
+    .map((row: any) => ({
+      sold: toNumber(row?.vendas ?? row?.sold),
+      at: new Date(row?.data_coleta ?? row?.date).getTime(),
+    }))
+    .filter((row: any) => row.at > 0)
+    .sort((a: any, b: any) => a.at - b.at);
+
+  const listingAgeDays = product.ctime && product.ctime > 0
+    ? Math.max(1, Math.floor((Date.now() / 1000 - product.ctime) / 86400))
+    : (sortedHistory.length > 0 ? Math.max(1, Math.floor((now - sortedHistory[0].at) / 86400000)) : Math.max(30, Math.round(product.historicalSold / 3)));
+
+  const latestSold = Math.max(product.historicalSold || 0, sortedHistory.at(-1)?.sold || 0);
+
+  const pointForDays = (days: number) => {
+    const target = now - (days * 86400000);
+    const candidates = sortedHistory.filter((row: any) => row.at <= target);
+    return candidates.length > 0 ? candidates[candidates.length - 1] : sortedHistory[0];
+  };
+
+  const point7 = pointForDays(7);
+  const point30 = pointForDays(30);
+
+  const salesLast7 = point7 ? Math.max(0, latestSold - point7.sold) : 0;
+  const salesLast30 = point30 ? Math.max(0, latestSold - point30.sold) : 0;
+  const fallbackPerDay = listingAgeDays > 0 ? latestSold / listingAgeDays : 0;
+  const salesPerDay = Math.round(((salesLast30 > 0 ? salesLast30 / 30 : fallbackPerDay) * 100)) / 100;
+
+  return {
+    listingAgeDays,
+    salesPerDay,
+    salesLast7: salesLast7 > 0 ? salesLast7 : Math.round(salesPerDay * 7),
+    salesLast30: salesLast30 > 0 ? salesLast30 : Math.round(salesPerDay * 30),
+  };
 }
 
 function calculateMarketMetrics(products: any[], originalPrice?: number) {
