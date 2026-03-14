@@ -867,6 +867,13 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       }
 
       if (parsed.title || parsed.price > 0 || parsed.historicalSold > 0 || parsed.ratingCount > 0) {
+        if (visiblePriceRange && visiblePriceRange.min > 0) {
+          parsed.price = visiblePriceRange.min;
+          parsed.current_price = visiblePriceRange.min;
+          parsed.priceMin = visiblePriceRange.min;
+          parsed.priceMax = Math.max(visiblePriceRange.min, visiblePriceRange.max);
+        }
+
         console.log(`JSON extraction successful: title="${parsed.title}", price=${parsed.price}, sold=${parsed.historicalSold}`);
         return parsed;
       }
