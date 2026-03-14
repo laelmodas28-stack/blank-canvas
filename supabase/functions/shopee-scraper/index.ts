@@ -42,13 +42,23 @@ function convertPrice(rawValue: unknown): number {
   const raw = typeof rawValue === 'string' ? Number(rawValue) : Number(rawValue || 0);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
 
-  // Shopee usually stores BRL prices in micro-units (×100000)
+  // Shopee stores BRL prices in micro-units (×100000)
+  // R$24.89 → 2489000, R$33.90 → 3390000
+  if (raw >= 1000000) return Math.round((raw / 100000) * 100) / 100;
+
+  // Values 100000-999999 are also micro-units (prices < R$10)
+  // R$7.18 → 718000 → BUT also check if it could be cents
   if (raw >= 100000) return Math.round((raw / 100000) * 100) / 100;
 
-  // Some responses use cents (×100)
-  if (Number.isInteger(raw) && raw >= 100) return Math.round((raw / 100) * 100) / 100;
+  // Values 10000-99999: likely cents (R$100.00 = 10000 cents) or micro-units (R$0.10 = 10000)
+  // For Shopee BR, these are almost always micro-units for very cheap items
+  if (raw >= 10000) return Math.round((raw / 100000) * 100) / 100;
 
-  // Already normalized
+  // Values 100-9999: could be cents (R$1.00 = 100 cents to R$99.99 = 9999 cents)
+  // or already BRL. Check if it looks like cents (integer values)
+  if (Number.isInteger(raw) && raw >= 100 && raw <= 9999) return Math.round((raw / 100) * 100) / 100;
+
+  // Already normalized BRL value (e.g., from JSON-LD or meta tags)
   return Math.round(raw * 100) / 100;
 }
 
@@ -222,10 +232,11 @@ function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
   const isFromLd = Boolean(item?._fromLd);
 
-  const rawPrice = firstPositiveNumber(item?.price, item?.price_min, item?.price_max, item?.current_price);
-  const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price, item?.price_max);
-  const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price, item?.price_min);
-  const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.original_price, item?.price_before_discount_min);
+  // For price, prioritize price_min (current selling price) over price
+  const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price_min_before_discount);
+  const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price_max_before_discount);
+  const rawPrice = firstPositiveNumber(rawPriceMin, item?.price, rawPriceMax, item?.current_price);
+  const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.price_before_discount_min, item?.original_price);
 
   // JSON-LD and meta tag prices are already in BRL — skip conversion
   const price = isFromLd ? Math.round(toNumber(rawPrice) * 100) / 100 : convertPrice(rawPrice);
@@ -238,15 +249,20 @@ function parseProduct(item: any) {
     : (Array.isArray(item?.rating_count) ? item.rating_count : []);
 
   const reviewCount = Math.max(
-    firstPositiveNumber(item?.cmt_count, item?.review_count, item?.comment_count, item?.rating_count),
+    firstPositiveNumber(item?.cmt_count, item?.review_count, item?.comment_count),
     toNumber(ratingCountArray[0])
   );
 
   const ratingAvg = firstPositiveNumber(item?.item_rating?.rating_star, item?.rating_star, item?.rating_average, item?.rating_avg);
 
-  const variationsStock = sumVariationStock(item?.models || item?.variations || item?.model_list);
-  const stockAvailable = Math.max(firstPositiveNumber(item?.stock, item?.normal_stock, item?.current_stock), variationsStock);
+  // Stock: sum all variation/model stocks for accurate total
+  const modelsArray = item?.models || item?.variations || item?.model_list || item?.tier_variations_models;
+  const variationsStock = sumVariationStock(modelsArray);
+  const directStock = firstPositiveNumber(item?.stock, item?.normal_stock, item?.current_stock);
+  // Use variations stock if available (more accurate for multi-variant products), else direct stock
+  const stockAvailable = variationsStock > 0 ? variationsStock : directStock;
 
+  // Sales: ALWAYS prefer historical_sold (total lifetime sales) over sold (recent period)
   const historicalSold = firstPositiveNumber(item?.historical_sold, item?.sold, item?.sold_count, item?.item_sold, item?.sold_quantity);
   const likedCount = firstPositiveNumber(item?.liked_count, item?.liked, item?.favorite_count);
 
@@ -1076,7 +1092,66 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
   }
 }
 
+// Primary: Try Shopee's internal item API (most accurate data source)
+async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<any | null> {
+  const apiUrls = [
+    `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+    `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+  ];
+
+  for (const apiUrl of apiUrls) {
+    try {
+      console.log(`Trying Shopee item API: ${apiUrl}`);
+      const response = await fetchWithRetry(apiUrl, getHeaders(`/product-i.${shopid}.${itemid}`), 2);
+      
+      if (!response.ok) {
+        console.log(`Item API returned ${response.status}`);
+        continue;
+      }
+
+      const json = await response.json();
+      const itemData = json?.data || json?.item || json?.item_basic || json;
+      
+      if (!itemData || typeof itemData !== 'object') continue;
+
+      // Verify we got the right product
+      const gotItemid = toNumber(itemData?.itemid);
+      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
+        console.log(`Item API returned wrong itemid: ${gotItemid} vs ${itemid}`);
+        continue;
+      }
+
+      // Set IDs if missing
+      if (!itemData.itemid) itemData.itemid = Number(itemid);
+      if (!itemData.shopid) itemData.shopid = Number(shopid);
+
+      const parsed = parseProduct(itemData);
+      const result = enrichProductData(parsed);
+
+      if (hasUsefulProductData(result)) {
+        console.log(`Success: Shopee item API — price=${result.price}, priceMin=${result.priceMin}, priceMax=${result.priceMax}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
+        return result;
+      }
+
+      console.log('Item API returned partial data, trying next source');
+    } catch (err) {
+      console.log('Item API failed:', err);
+    }
+
+    await delay(300 + Math.random() * 300);
+  }
+
+  return null;
+}
+
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
+  // 1) Try Shopee's direct item API first (most accurate)
+  const apiResult = await fetchFromShopeeItemApi(shopid, itemid);
+  if (apiResult) return apiResult;
+
+  await delay(500 + Math.random() * 500);
+
+  // 2) HTML scraping fallback
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
@@ -1098,7 +1173,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingCount}`);
         return result;
       }
 
@@ -1108,6 +1183,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     }
   }
 
+  // 3) Headless render fallback
   try {
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
@@ -1115,7 +1191,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
       const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
       const result = parsed ? enrichProductData(parsed) : null;
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
         return result;
       }
     }
