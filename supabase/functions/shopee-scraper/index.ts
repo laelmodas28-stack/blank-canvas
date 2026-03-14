@@ -646,10 +646,11 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
     };
   }
 
-  // 4) Inline script extraction by itemid token + balanced JSON parsing
-  for (const scriptMatch of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+  // 4) Inline script extraction by itemid token + balanced JSON parsing (bounded to avoid CPU exhaustion)
+  const inlineScriptMatches = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)).slice(0, 24);
+  for (const scriptMatch of inlineScriptMatches) {
     const content = scriptMatch[1];
-    if (!content.includes('itemid')) continue;
+    if (!content || content.length > 250000 || !content.includes('itemid')) continue;
 
     const extracted = extractObjectContainingItemId(content, parsedItemid, parsedShopid);
     if (extracted) {
