@@ -398,11 +398,21 @@ async function getCachedProduct(supabase: any, shopid: string, itemid: string) {
     .limit(1);
   if (data && data.length > 0) {
     const row = data[0];
+    const price = parseFloat(row.preco);
+    const vendas = row.vendas || 0;
+    const avaliacoes = row.avaliacoes || 0;
+    
+    // Only use cache if it has meaningful data
+    if (price <= 0 && vendas <= 0 && avaliacoes <= 0) {
+      console.log('Cached data has all zeros — skipping cache');
+      return null;
+    }
+    
     return {
-      title: row.titulo, price: parseFloat(row.preco), priceMin: parseFloat(row.preco), priceMax: parseFloat(row.preco),
-      originalPrice: parseFloat(row.preco),
+      title: row.titulo, price, priceMin: price, priceMax: price,
+      originalPrice: price,
       discount: 0,
-      historicalSold: row.vendas, stock: row.estoque || 0, ratingCount: row.avaliacoes,
+      historicalSold: vendas, stock: row.estoque || 0, ratingCount: avaliacoes,
       ratingAvg: parseFloat(row.avaliacao_media || '0'), category: row.categoria || '',
       shopName: row.nome_loja || '', shopid: row.shopid, itemid: row.itemid, image: '',
       _cached: true, ctime: 0, shopRating: 0, shopFollowers: 0, shopResponseRate: 0,
