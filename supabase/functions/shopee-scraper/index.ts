@@ -1320,6 +1320,26 @@ function isValidIdSegment(value: string): boolean {
   return /^\d{5,20}$/.test(value) && Number(value) > 0;
 }
 
+function isValidShopeeProductUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+
+  try {
+    const parsed = new URL(rawUrl.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (!hostname.includes('shopee')) return false;
+
+    const hasSlugIds = /-i\.\d+\.\d+(?:$|[/?#&._-])/i.test(`${parsed.pathname}${parsed.search}`);
+    const hasQueryIds = Boolean(
+      (parsed.searchParams.get('shopid') || parsed.searchParams.get('shop_id'))
+      && (parsed.searchParams.get('itemid') || parsed.searchParams.get('item_id'))
+    );
+
+    return hasSlugIds || hasQueryIds;
+  } catch {
+    return false;
+  }
+}
+
 function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | null {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
 
@@ -1339,7 +1359,8 @@ function extractShopeeIds(rawUrl: string): { shopid: string; itemid: string } | 
   }
 
   const patterns = [
-    /(?:^|[^\w])-?i\.(\d+)\.(\d+)(?:[/?#&._-]|$)/i,
+    /-i\.(\d+)\.(\d+)(?:$|[/?#&._-])/i,
+    /(?:^|[^\w])i\.(\d+)\.(\d+)(?:$|[/?#&._-])/i,
     /shopid=(\d+).*itemid=(\d+)/i,
     /itemid=(\d+).*shopid=(\d+)/i,
   ];
