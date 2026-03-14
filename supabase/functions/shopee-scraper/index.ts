@@ -946,10 +946,10 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       ),
       historical_sold: firstPositiveNumber(
         soldFromDescription,
-        extractNumber([/"historical_sold"\s*:\s*(\d+)/, /"sold"\s*:\s*(\d+)/, /"sold_count"\s*:\s*(\d+)/]),
+        extractNumber([/"historical_sold"\s*:\s*(\d+)/]),
       ),
       liked_count: extractNumber([/"liked_count"\s*:\s*(\d+)/, /"liked"\s*:\s*(\d+)/]),
-      cmt_count: extractNumber([/"cmt_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
+      rating_count: extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/, /"cmt_count"\s*:\s*(\d+)/]),
       rating_star: extractNumber([/"rating_star"\s*:\s*([\d.]+)/, /"rating_average"\s*:\s*([\d.]+)/, /"rating"\s*:\s*([\d.]+)/]),
       shop_name: extract([/"shop_name"\s*:\s*"([^"]+)"/, /"name"\s*:\s*"([^"]+)"\s*,\s*"shopid"/]),
       shop_location: extract([/"shop_location"\s*:\s*"([^"]+)"/, /"location"\s*:\s*"([^"]+)"/]),
@@ -960,6 +960,7 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       badge_icon_type: html.includes('"badge_icon_type":1') ? 1 : 0,
       is_preferred_plus_seller: html.includes('preferred_plus') || html.includes('shopee_verified'),
       is_official_shop: html.includes('official_shop') || html.includes('official-store'),
+      _selectedModelId: selectedModelId,
     };
 
     let parsed = parseProduct(fallbackObject);
