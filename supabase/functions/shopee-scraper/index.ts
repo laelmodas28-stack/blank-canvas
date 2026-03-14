@@ -448,12 +448,9 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
   return null;
 }
 
-// Fetch product data through a scraping proxy
+// Fetch product data through public mirror/proxy fallbacks
 async function fetchViaScrapingProxy(url: string): Promise<string | null> {
-  const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
-
-  // 1) ScraperAPI (paid, most reliable, renders JS)
-  if (scraperApiKey) {
+  // 1) Try proxy services for Shopee API
     try {
       console.log('Trying ScraperAPI proxy...');
       const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
