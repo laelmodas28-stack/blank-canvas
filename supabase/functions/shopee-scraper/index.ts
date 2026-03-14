@@ -605,12 +605,12 @@ function extractProductFromPageJson(html: string, shopid: string, itemid: string
 function parseProductFromHtml(html: string, shopid: string, itemid: string) {
   try {
     // 0) Always extract meta tags first — they're the most reliable on Shopee
-    const metaTitle = getMetaContent(html, 'og:title')?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim();
+    const metaTitle = sanitizeProductTitle(getMetaContent(html, 'og:title'));
     const metaImage = getMetaContent(html, 'og:image');
     const metaPrice = toNumber(getMetaContent(html, 'product:price:amount'));
     const metaCurrency = firstNonEmptyString(getMetaContent(html, 'product:price:currency'), 'BRL');
     const metaDescription = getMetaContent(html, 'og:description');
-    const titleTag = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s*[\|–\-]\s*Shopee\s*Brasil.*$/i, '').trim() || '';
+    const titleTag = sanitizeProductTitle(html.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
 
     console.log(`Meta tags: title="${metaTitle}", price=${metaPrice}, image=${metaImage ? 'yes' : 'no'}`);
 
