@@ -42,13 +42,23 @@ function convertPrice(rawValue: unknown): number {
   const raw = typeof rawValue === 'string' ? Number(rawValue) : Number(rawValue || 0);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
 
-  // Shopee usually stores BRL prices in micro-units (×100000)
+  // Shopee stores BRL prices in micro-units (×100000)
+  // R$24.89 → 2489000, R$33.90 → 3390000
+  if (raw >= 1000000) return Math.round((raw / 100000) * 100) / 100;
+
+  // Values 100000-999999 are also micro-units (prices < R$10)
+  // R$7.18 → 718000 → BUT also check if it could be cents
   if (raw >= 100000) return Math.round((raw / 100000) * 100) / 100;
 
-  // Some responses use cents (×100)
-  if (Number.isInteger(raw) && raw >= 100) return Math.round((raw / 100) * 100) / 100;
+  // Values 10000-99999: likely cents (R$100.00 = 10000 cents) or micro-units (R$0.10 = 10000)
+  // For Shopee BR, these are almost always micro-units for very cheap items
+  if (raw >= 10000) return Math.round((raw / 100000) * 100) / 100;
 
-  // Already normalized
+  // Values 100-9999: could be cents (R$1.00 = 100 cents to R$99.99 = 9999 cents)
+  // or already BRL. Check if it looks like cents (integer values)
+  if (Number.isInteger(raw) && raw >= 100 && raw <= 9999) return Math.round((raw / 100) * 100) / 100;
+
+  // Already normalized BRL value (e.g., from JSON-LD or meta tags)
   return Math.round(raw * 100) / 100;
 }
 
