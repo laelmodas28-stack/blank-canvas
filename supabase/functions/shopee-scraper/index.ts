@@ -1629,10 +1629,12 @@ Deno.serve(async (req) => {
       if (!shopid || !itemid) {
         return new Response(JSON.stringify({ success: false, error: 'shopid e itemid são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      const cached2 = await getCachedProduct(supabase, shopid, itemid);
-      if (cached2) return new Response(JSON.stringify({ success: true, data: cached2, product: cached2, fromCache: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      // Always try live first for exact listing values; fallback to cache if blocked.
+      const liveProduct = await fetchProductDetails(shopid, itemid);
+      const cached2 = liveProduct ? null : await getCachedProduct(supabase, shopid, itemid);
+      const product = liveProduct || cached2;
+      const fromCache = !liveProduct && Boolean(cached2);
 
-      const product = await fetchProductDetails(shopid, itemid);
       if (!product || !hasUsefulProductData(product)) {
         return new Response(
           JSON.stringify({
@@ -1643,8 +1645,11 @@ Deno.serve(async (req) => {
         );
       }
 
-      await saveToCache(supabase, product, 0);
-      return new Response(JSON.stringify({ success: true, data: product, product, fromCache: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!fromCache) {
+        await saveToCache(supabase, product, 0);
+      }
+
+      return new Response(JSON.stringify({ success: true, data: product, product, fromCache }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ success: false, error: 'Ação inválida. Use: analyze_link, search, ou product_details' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
