@@ -1151,15 +1151,19 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
     ));
 
     const rawPrice = firstPositiveNumber(
+      extractNumber([
+        /"price_min"\s*:\s*(\d{4,})/,
+        /"priceMin"\s*:\s*(\d{4,})/,
+        /"price_max"\s*:\s*(\d{4,})/,
+        /"priceMax"\s*:\s*(\d{4,})/,
+        /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d{4,})/,
+        /"price_info"\s*:\s*\{[\s\S]{0,220}?"price"\s*:\s*(\d{4,})/,
+      ]),
+      visiblePriceRange?.min || 0,
       metaPrice,
       extractNumber([
         /"price"\s*:\s*"([\d.,]+)"/,
         /"price"\s*:\s*([\d.]+)/,
-        /"price_max"\s*:\s*(\d+)/,
-        /"price_min"\s*:\s*(\d+)/,
-        /"priceMin"\s*:\s*(\d+)/,
-        /"priceMax"\s*:\s*(\d+)/,
-        /"price_info"\s*:\s*\{[\s\S]{0,180}?"price"\s*:\s*(\d+)/,
       ]),
       toNumber(extract([/R\$\s*([\d.,]+)/, /pre[çc]o[^\d]{0,12}([\d.,]+)/i]))
     );
