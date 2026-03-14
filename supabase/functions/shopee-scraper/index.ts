@@ -304,11 +304,36 @@ function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
   const isFromLd = Boolean(item?._fromLd);
 
-  // For price, prioritize price_min (current selling price) over price
-  const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price_min_before_discount);
-  const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price_max_before_discount);
-  const rawPrice = firstPositiveNumber(rawPriceMin, item?.price, rawPriceMax, item?.current_price);
-  const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.price_before_discount_min, item?.original_price);
+  const modelsArray = item?.models || item?.variations || item?.model_list || item?.tier_variations_models;
+  const selectedModelId = firstPositiveNumber(item?._selectedModelId, item?.selected_model_id, item?.display_model_id);
+  const variationPriceInfo = getVariationPriceInfo(modelsArray, selectedModelId);
+
+  // For price, prioritize selected model price, then price_min, then model min range.
+  const rawPriceMin = firstPositiveNumber(
+    variationPriceInfo.minRaw,
+    item?.price_min,
+    item?.price_min_before_discount,
+  );
+  const rawPriceMax = firstPositiveNumber(
+    variationPriceInfo.maxRaw,
+    item?.price_max,
+    item?.price_max_before_discount,
+    rawPriceMin,
+  );
+  const rawPrice = firstPositiveNumber(
+    variationPriceInfo.selectedRaw,
+    rawPriceMin,
+    item?.price,
+    item?.current_price,
+    rawPriceMax,
+  );
+  const rawOriginalPrice = firstPositiveNumber(
+    variationPriceInfo.selectedOriginalRaw,
+    item?.price_before_discount,
+    item?.price_before_discount_min,
+    item?.original_price,
+    rawPriceMax,
+  );
 
   // JSON-LD and meta tag prices are already in BRL — skip conversion
   const price = isFromLd ? Math.round(toNumber(rawPrice) * 100) / 100 : convertPrice(rawPrice);
@@ -321,21 +346,20 @@ function parseProduct(item: any) {
     : (Array.isArray(item?.rating_count) ? item.rating_count : []);
 
   const reviewCount = Math.max(
-    firstPositiveNumber(item?.cmt_count, item?.review_count, item?.comment_count),
+    firstPositiveNumber(item?.rating_count, item?.review_count, item?.cmt_count, item?.comment_count),
     toNumber(ratingCountArray[0])
   );
 
   const ratingAvg = firstPositiveNumber(item?.item_rating?.rating_star, item?.rating_star, item?.rating_average, item?.rating_avg);
 
   // Stock: sum all variation/model stocks for accurate total
-  const modelsArray = item?.models || item?.variations || item?.model_list || item?.tier_variations_models;
   const variationsStock = sumVariationStock(modelsArray);
   const directStock = firstPositiveNumber(item?.stock, item?.normal_stock, item?.current_stock);
   // Use variations stock if available (more accurate for multi-variant products), else direct stock
   const stockAvailable = variationsStock > 0 ? variationsStock : directStock;
 
-  // Sales: ALWAYS prefer historical_sold (total lifetime sales) over sold (recent period)
-  const historicalSold = firstPositiveNumber(item?.historical_sold, item?.sold, item?.sold_count, item?.item_sold, item?.sold_quantity);
+  // Sales: use historical_sold only (do not trust transient sold fields)
+  const historicalSold = firstPositiveNumber(item?.historical_sold, item?.historicalSold);
   const likedCount = firstPositiveNumber(item?.liked_count, item?.liked, item?.favorite_count);
 
   const shopName = firstNonEmptyString(item?.shop_name, item?.shop_info?.shop_name, item?.shop_detailed?.name, item?.shop_info?.name);
