@@ -1415,6 +1415,13 @@ Deno.serve(async (req) => {
       const extractedShopid = ids.shopid;
       const extractedItemid = ids.itemid;
 
+      if (!isValidIdSegment(extractedShopid) || !isValidIdSegment(extractedItemid)) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Could not extract valid shopid/itemid from the provided Shopee link.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       const cached = await getCachedProduct(supabase, extractedShopid, extractedItemid);
       const liveProduct = cached ? null : await fetchProductDetails(extractedShopid, extractedItemid, url);
       let product = cached || liveProduct;
