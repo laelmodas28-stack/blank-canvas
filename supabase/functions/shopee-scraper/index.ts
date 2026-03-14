@@ -418,6 +418,16 @@ function validateData(data: any): boolean {
   );
 }
 
+function hasReliableRealtimeData(item: any, data: any): boolean {
+  if (!item || item._fromMeta) return false;
+
+  const hasSalesField = Object.prototype.hasOwnProperty.call(item, 'historical_sold') || Object.prototype.hasOwnProperty.call(item, 'sold');
+  const hasStockField = Object.prototype.hasOwnProperty.call(item, 'stock') || Array.isArray(item.models);
+  const hasRatingField = Object.prototype.hasOwnProperty.call(item, 'item_rating') || Object.prototype.hasOwnProperty.call(item, 'rating_star');
+
+  return validateData(data) && hasSalesField && hasStockField && hasRatingField;
+}
+
 // ─── SEARCH FUNCTIONALITY ──────────────────────────────────────────────────────
 
 async function searchProducts(keyword: string, limit: number, filters?: any) {
