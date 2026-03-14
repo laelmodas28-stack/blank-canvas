@@ -1,4 +1,4 @@
-import { Calculator, CheckCircle2, TrendingUp, BarChart3, AlertTriangle, ShieldAlert, Megaphone, DollarSign } from "lucide-react";
+import { Calculator, CheckCircle2, TrendingUp, BarChart3, AlertTriangle, ShieldAlert, Megaphone, DollarSign, Target, ShoppingCart } from "lucide-react";
 import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
