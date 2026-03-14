@@ -70,6 +70,19 @@ function firstNonEmptyString(...values: unknown[]): string {
   return '';
 }
 
+function sanitizeProductTitle(value: unknown): string {
+  const cleaned = firstNonEmptyString(value)
+    .replace(/\s*([|–\-])\s*Shopee\s*Brasil.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+  if (/^shopee\s*brasil\b/i.test(cleaned)) return '';
+  if (/^ofertas\s+incr[íi]veis/i.test(cleaned)) return '';
+
+  return cleaned;
+}
+
 function firstPositiveNumber(...values: unknown[]): number {
   for (const value of values) {
     const num = toNumber(value);
