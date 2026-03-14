@@ -1302,16 +1302,8 @@ function enrichProductData(rawProduct: any): any {
     product.originalPrice = product.price;
   }
 
-  if (product.historicalSold <= 0 && product.ratingCount > 0) {
-    product.historicalSold = Math.max(product.ratingCount, Math.round(product.ratingCount * 1.6));
-  }
-
   if (product.stock <= 0 && product.variationsStock > 0) {
     product.stock = product.variationsStock;
-  }
-
-  if (product.ratingCount <= 0 && product.historicalSold > 0) {
-    product.ratingCount = Math.max(1, Math.round(product.historicalSold * 0.08));
   }
 
   product.current_price = product.price;
