@@ -1216,12 +1216,6 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
 
     let parsed = parseProduct(fallbackObject);
 
-    // Estimation fallback when Shopee hides exact counts but signals exist
-    if (parsed.historicalSold <= 0 && parsed.ratingCount > 0) {
-      parsed.historicalSold = Math.max(parsed.ratingCount, Math.round(parsed.ratingCount * 1.6));
-      parsed.historical_sold = parsed.historicalSold;
-    }
-
     if (parsed.stock <= 0 && parsed.variationsStock > 0) {
       parsed.stock = parsed.variationsStock;
       parsed.stock_available = parsed.variationsStock;
