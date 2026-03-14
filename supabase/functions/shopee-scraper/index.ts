@@ -161,16 +161,18 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
 
 function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
+  const isFromLd = Boolean(item?._fromLd);
 
   const rawPrice = firstPositiveNumber(item?.price, item?.price_min, item?.price_max, item?.current_price);
   const rawPriceMin = firstPositiveNumber(item?.price_min, item?.price, item?.price_max);
   const rawPriceMax = firstPositiveNumber(item?.price_max, item?.price, item?.price_min);
   const rawOriginalPrice = firstPositiveNumber(item?.price_before_discount, item?.original_price, item?.price_before_discount_min);
 
-  const price = convertPrice(rawPrice);
-  const priceMin = convertPrice(rawPriceMin || rawPrice);
-  const priceMax = convertPrice(rawPriceMax || rawPrice);
-  const originalPrice = convertPrice(rawOriginalPrice);
+  // JSON-LD and meta tag prices are already in BRL — skip conversion
+  const price = isFromLd ? Math.round(toNumber(rawPrice) * 100) / 100 : convertPrice(rawPrice);
+  const priceMin = isFromLd ? Math.round(toNumber(rawPriceMin || rawPrice) * 100) / 100 : convertPrice(rawPriceMin || rawPrice);
+  const priceMax = isFromLd ? Math.round(toNumber(rawPriceMax || rawPrice) * 100) / 100 : convertPrice(rawPriceMax || rawPrice);
+  const originalPrice = isFromLd ? Math.round(toNumber(rawOriginalPrice) * 100) / 100 : convertPrice(rawOriginalPrice);
 
   const ratingCountArray = Array.isArray(item?.item_rating?.rating_count)
     ? item.item_rating.rating_count
