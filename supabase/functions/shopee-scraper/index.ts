@@ -1427,9 +1427,9 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Unable to extract complete Shopee product intelligence from this URL right now. Please retry in a few minutes.',
+            error: 'Failed to extract Shopee product data',
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
