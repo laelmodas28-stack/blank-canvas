@@ -14,24 +14,54 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
-function getHeaders(refererPath = '/') {
+function getHeaders(refererPath = '/', mode: 'api' | 'html' | 'mobile' = 'api') {
   const chromeVersion = `${120 + Math.floor(Math.random() * 15)}`;
-  return {
+  const ts = Date.now();
+  const spcF = `sp_${ts}_${Math.random().toString(36).slice(2, 10)}`;
+
+  if (mode === 'mobile') {
+    return {
+      'User-Agent': 'ShopeeApp/3.23.11 (Android 13; SDK 33; arm64-v8a)',
+      'Accept': 'application/json',
+      'Accept-Language': 'pt-BR,pt;q=0.9',
+      'X-Shopee-Language': 'pt-BR',
+      'X-API-SOURCE': 'rweb',
+      'X-Requested-With': 'com.shopee.br',
+      'Referer': SHOPEE_BASE + refererPath,
+      'Origin': SHOPEE_BASE,
+    };
+  }
+
+  const base: Record<string, string> = {
     'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Safari/537.36`,
-    'Accept': 'application/json',
     'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': `${SHOPEE_BASE}${refererPath}`,
     'Origin': SHOPEE_BASE,
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
     'Sec-Ch-Ua': `"Chromium";v="${chromeVersion}", "Not_A Brand";v="24"`,
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
-    'X-Shopee-Language': 'pt-BR',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Cookie': `SPC_F=tmp_${Date.now()}; SPC_EC=-; SPC_U=-;`,
+    'Cookie': `SPC_F=${spcF}; SPC_EC=-; SPC_U=-; SPC_R_T_ID=; SPC_T_ID=${spcF}; SPC_T_IV=; SPC_SI=;`,
   };
+
+  if (mode === 'api') {
+    base['Accept'] = 'application/json';
+    base['Sec-Fetch-Dest'] = 'empty';
+    base['Sec-Fetch-Mode'] = 'cors';
+    base['Sec-Fetch-Site'] = 'same-origin';
+    base['X-Shopee-Language'] = 'pt-BR';
+    base['X-Requested-With'] = 'XMLHttpRequest';
+    base['X-API-SOURCE'] = 'pc';
+  } else {
+    base['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
+    base['Sec-Fetch-Dest'] = 'document';
+    base['Sec-Fetch-Mode'] = 'navigate';
+    base['Sec-Fetch-Site'] = 'none';
+    base['Sec-Fetch-User'] = '?1';
+    base['Upgrade-Insecure-Requests'] = '1';
+    base['Cache-Control'] = 'max-age=0';
+  }
+
+  return base;
 }
 
 function delay(ms: number) {
@@ -256,16 +286,8 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
   throw new Error('Max retries exceeded');
 }
 
-function getShopeeHtmlHeaders(refererPath = '/') {
-  return {
-    ...getHeaders(refererPath),
-    'User-Agent': 'Mozilla/5.0',
-    'Accept': 'text/html',
-  };
-}
-
 async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise<string | null> {
-  const headers = getShopeeHtmlHeaders(refererPath);
+  const headers = getHeaders(refererPath, 'html');
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -295,6 +317,96 @@ async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise
       console.log(`HTML fetch error for ${url}:`, error);
       return null;
     }
+  }
+
+  return null;
+}
+
+// Fetch product data through a scraping proxy
+async function fetchViaScrapingProxy(url: string): Promise<string | null> {
+  const scraperApiKey = Deno.env.get('SCRAPER_API_KEY');
+
+  // 1) ScraperAPI (paid, most reliable, renders JS)
+  if (scraperApiKey) {
+    try {
+      console.log('Trying ScraperAPI proxy...');
+      const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=br`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35000);
+      const response = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const html = await response.text();
+        if (html && html.length > 1000) {
+          console.log(`ScraperAPI returned ${html.length} chars`);
+          return html;
+        }
+      } else {
+        console.log(`ScraperAPI returned ${response.status}`);
+      }
+    } catch (error) {
+      console.log('ScraperAPI failed:', error);
+    }
+  }
+
+  // 2) Try proxy services for Shopee API
+  const idsMatch = url.match(/-i\.(\d+)\.(\d+)/);
+  if (!idsMatch) return null;
+  const [, shopid, itemid] = idsMatch;
+
+  const apiUrl = `https://shopee.com.br/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`;
+
+  const proxyAttempts = [
+    { label: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}` },
+    { label: 'corsproxy', url: `https://corsproxy.io/?${encodeURIComponent(apiUrl)}` },
+  ];
+
+  for (const attempt of proxyAttempts) {
+    try {
+      console.log(`Trying ${attempt.label} proxy for API...`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(attempt.url, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const text = await response.text();
+        if (text && text.includes('itemid')) {
+          console.log(`${attempt.label} returned ${text.length} chars`);
+          return `<script id="__NEXT_DATA__" type="application/json">${text}</script>`;
+        }
+      } else {
+        console.log(`${attempt.label} returned ${response.status}`);
+      }
+    } catch (error) {
+      console.log(`${attempt.label} failed:`, error);
+    }
+  }
+
+  // 3) Google Cache
+  try {
+    console.log('Trying Google cache...');
+    const gcUrl = `https://webcache.googleusercontent.com/search?q=cache:shopee.com.br/product-i.${shopid}.${itemid}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(gcUrl, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+    });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      const html = await response.text();
+      if (html && html.length > 1000 && (html.includes('shopee') || html.includes('itemid'))) {
+        console.log(`Google cache returned ${html.length} chars`);
+        return html;
+      }
+    } else {
+      console.log(`Google cache returned ${response.status}`);
+    }
+  } catch (error) {
+    console.log('Google cache failed:', error);
   }
 
   return null;
@@ -1272,51 +1384,91 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 
 // Primary: Try Shopee's internal item API (most accurate data source)
 async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedModelId = 0): Promise<any | null> {
-  const apiUrls = [
-    `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
-    `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+  const refPath = `/product-i.${shopid}.${itemid}`;
+
+  // Multiple API endpoints to try — different versions have different blocking patterns
+  const apiConfigs = [
+    // PDP (Product Detail Page) API — often less protected
+    {
+      label: 'pdp/get_pc',
+      url: `${SHOPEE_BASE}/api/v4/pdp/get_pc?shop_id=${shopid}&item_id=${itemid}&pickup_campus_id=`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data?.item || json?.data?.product || json?.data,
+    },
+    // Standard v4 item API
+    {
+      label: 'v4/item/get',
+      url: `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // v2 item API
+    {
+      label: 'v2/item/get',
+      url: `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // Mobile API — different blocking rules
+    {
+      label: 'mobile/v4',
+      url: `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'mobile'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // PDP v2
+    {
+      label: 'pdp/get (v2)',
+      url: `${SHOPEE_BASE}/api/v2/pdp/get?shop_id=${shopid}&item_id=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data?.item || json?.data?.product || json?.data,
+    },
   ];
 
-  for (const apiUrl of apiUrls) {
+  for (const config of apiConfigs) {
     try {
-      console.log(`Trying Shopee item API: ${apiUrl}`);
-      const response = await fetchWithRetry(apiUrl, getHeaders(`/product-i.${shopid}.${itemid}`), 2);
+      console.log(`Trying Shopee API [${config.label}]`);
+      const response = await fetchWithRetry(config.url, config.headers, 1);
       
       if (!response.ok) {
-        console.log(`Item API returned ${response.status}`);
+        console.log(`[${config.label}] returned ${response.status}`);
+        await delay(200 + Math.random() * 300);
         continue;
       }
 
       const json = await response.json();
-      const itemData = json?.data || json?.item || json?.item_basic || json;
+      const itemData = config.extract(json);
       
-      if (!itemData || typeof itemData !== 'object') continue;
-
-      // Verify we got the right product
-      const gotItemid = toNumber(itemData?.itemid);
-      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
-        console.log(`Item API returned wrong itemid: ${gotItemid} vs ${itemid}`);
+      if (!itemData || typeof itemData !== 'object') {
+        console.log(`[${config.label}] returned empty data`);
         continue;
       }
 
-      // Set IDs if missing
-      if (!itemData.itemid) itemData.itemid = Number(itemid);
-      if (!itemData.shopid) itemData.shopid = Number(shopid);
+      // Verify we got the right product
+      const gotItemid = toNumber(itemData?.itemid || itemData?.item_id);
+      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
+        console.log(`[${config.label}] returned wrong itemid: ${gotItemid} vs ${itemid}`);
+        continue;
+      }
+
+      // Normalize ID fields
+      if (!itemData.itemid) itemData.itemid = itemData.item_id || Number(itemid);
+      if (!itemData.shopid) itemData.shopid = itemData.shop_id || Number(shopid);
 
       const parsed = parseProduct({ ...itemData, _selectedModelId: selectedModelId });
       const result = enrichProductData(parsed);
 
       if (hasUsefulProductData(result)) {
-        console.log(`Success: Shopee item API — price=${result.price}, priceMin=${result.priceMin}, priceMax=${result.priceMax}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
+        console.log(`Success: [${config.label}] — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
         return result;
       }
 
-      console.log('Item API returned partial data, trying next source');
+      console.log(`[${config.label}] returned partial data, trying next`);
     } catch (err) {
-      console.log('Item API failed:', err);
+      console.log(`[${config.label}] failed:`, err);
     }
 
-    await delay(300 + Math.random() * 300);
+    await delay(200 + Math.random() * 300);
   }
 
   return null;
@@ -1325,17 +1477,28 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedMo
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
   const selectedModelId = extractSelectedModelIdFromUrl(sourceUrl);
 
-  // 1) Try Shopee's direct item API first (most accurate)
+  // 1) Try Shopee's direct item APIs first (most accurate)
   const apiResult = await fetchFromShopeeItemApi(shopid, itemid, selectedModelId);
   if (apiResult) return apiResult;
 
-  await delay(500 + Math.random() * 500);
+  await delay(300 + Math.random() * 300);
 
-  // 2) HTML scraping fallback
+  // 2) Scraping proxy fallback (if SCRAPER_API_KEY is configured)
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-  const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
+  const proxyHtml = await fetchViaScrapingProxy(incomingUrl || canonicalProductUrl);
+  if (proxyHtml) {
+    const parsed = parseProductFromHtml(proxyHtml, shopid, itemid, selectedModelId);
+    const result = parsed ? enrichProductData(parsed) : null;
+    if (result && hasUsefulProductData(result)) {
+      console.log(`Success: scraping proxy — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
+      return result;
+    }
+  }
+
+  // 3) HTML scraping fallback
+  const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const candidateUrls = [incomingUrl, canonicalProductUrl, alternateProductUrl].filter(Boolean);
   const visitedUrls = new Set<string>();
 
@@ -1363,7 +1526,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     }
   }
 
-  // 3) Headless render fallback
+  // 4) Headless render fallback
   try {
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
@@ -1691,7 +1854,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Failed to extract Shopee product data',
+            error: 'A Shopee está bloqueando o acesso aos dados do produto. Para resolver, configure o secret SCRAPER_API_KEY com uma chave do ScraperAPI (scraperapi.com — plano gratuito disponível com 1000 requests/mês).',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
