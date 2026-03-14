@@ -856,9 +856,12 @@ function hasUsefulProductData(product: any): boolean {
   const title = sanitizeProductTitle(firstNonEmptyString(product?.title, product?.product_title, product?.name));
   const hasCoreSignals = toNumber(product?.price) > 0 || toNumber(product?.historicalSold) > 0 || toNumber(product?.ratingCount) > 0;
   const hasIds = toNumber(product?.shopid) > 0 && toNumber(product?.itemid) > 0;
+  const hasStrongSignals = Boolean(firstNonEmptyString(product?.image, product?.product_image, product?.shopName, product?.shop_name))
+    || toNumber(product?.stock) > 0
+    || toNumber(product?.historicalSold) > 0
+    || toNumber(product?.ratingCount) > 0;
 
-  // We only accept product data with valid IDs + meaningful title + any commercial signal.
-  return Boolean(title) && hasIds && hasCoreSignals;
+  return Boolean(title) && hasIds && hasCoreSignals && hasStrongSignals;
 }
 
 function enrichProductData(rawProduct: any): any {
