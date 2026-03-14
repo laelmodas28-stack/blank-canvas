@@ -1264,7 +1264,7 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 }
 
 // Primary: Try Shopee's internal item API (most accurate data source)
-async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<any | null> {
+async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedModelId = 0): Promise<any | null> {
   const apiUrls = [
     `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
     `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
@@ -1296,7 +1296,7 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<a
       if (!itemData.itemid) itemData.itemid = Number(itemid);
       if (!itemData.shopid) itemData.shopid = Number(shopid);
 
-      const parsed = parseProduct(itemData);
+      const parsed = parseProduct({ ...itemData, _selectedModelId: selectedModelId });
       const result = enrichProductData(parsed);
 
       if (hasUsefulProductData(result)) {
@@ -1316,8 +1316,10 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string): Promise<a
 }
 
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
+  const selectedModelId = extractSelectedModelIdFromUrl(sourceUrl);
+
   // 1) Try Shopee's direct item API first (most accurate)
-  const apiResult = await fetchFromShopeeItemApi(shopid, itemid);
+  const apiResult = await fetchFromShopeeItemApi(shopid, itemid, selectedModelId);
   if (apiResult) return apiResult;
 
   await delay(500 + Math.random() * 500);
