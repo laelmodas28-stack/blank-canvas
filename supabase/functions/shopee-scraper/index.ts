@@ -14,24 +14,54 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
-function getHeaders(refererPath = '/') {
+function getHeaders(refererPath = '/', mode: 'api' | 'html' | 'mobile' = 'api') {
   const chromeVersion = `${120 + Math.floor(Math.random() * 15)}`;
-  return {
+  const ts = Date.now();
+  const spcF = `sp_${ts}_${Math.random().toString(36).slice(2, 10)}`;
+
+  if (mode === 'mobile') {
+    return {
+      'User-Agent': 'ShopeeApp/3.23.11 (Android 13; SDK 33; arm64-v8a)',
+      'Accept': 'application/json',
+      'Accept-Language': 'pt-BR,pt;q=0.9',
+      'X-Shopee-Language': 'pt-BR',
+      'X-API-SOURCE': 'rweb',
+      'X-Requested-With': 'com.shopee.br',
+      'Referer': SHOPEE_BASE + refererPath,
+      'Origin': SHOPEE_BASE,
+    };
+  }
+
+  const base: Record<string, string> = {
     'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Safari/537.36`,
-    'Accept': 'application/json',
     'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': `${SHOPEE_BASE}${refererPath}`,
     'Origin': SHOPEE_BASE,
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
     'Sec-Ch-Ua': `"Chromium";v="${chromeVersion}", "Not_A Brand";v="24"`,
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
-    'X-Shopee-Language': 'pt-BR',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Cookie': `SPC_F=tmp_${Date.now()}; SPC_EC=-; SPC_U=-;`,
+    'Cookie': `SPC_F=${spcF}; SPC_EC=-; SPC_U=-; SPC_R_T_ID=; SPC_T_ID=${spcF}; SPC_T_IV=; SPC_SI=;`,
   };
+
+  if (mode === 'api') {
+    base['Accept'] = 'application/json';
+    base['Sec-Fetch-Dest'] = 'empty';
+    base['Sec-Fetch-Mode'] = 'cors';
+    base['Sec-Fetch-Site'] = 'same-origin';
+    base['X-Shopee-Language'] = 'pt-BR';
+    base['X-Requested-With'] = 'XMLHttpRequest';
+    base['X-API-SOURCE'] = 'pc';
+  } else {
+    base['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
+    base['Sec-Fetch-Dest'] = 'document';
+    base['Sec-Fetch-Mode'] = 'navigate';
+    base['Sec-Fetch-Site'] = 'none';
+    base['Sec-Fetch-User'] = '?1';
+    base['Upgrade-Insecure-Requests'] = '1';
+    base['Cache-Control'] = 'max-age=0';
+  }
+
+  return base;
 }
 
 function delay(ms: number) {
