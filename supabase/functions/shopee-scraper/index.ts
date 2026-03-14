@@ -1071,142 +1071,50 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 }
 
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
-  const htmlHeaders = {
-    ...getHeaders('/'),
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  };
-
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
   const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
-  const strategies: { label: string; fn: () => Promise<any> }[] = [
-    {
-      label: 'v4 API',
-      fn: async () => {
-        const url = `${SHOPEE_BASE}/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'v2 API',
-      fn: async () => {
-        await delay(500 + Math.random() * 500);
-        const url = `${SHOPEE_BASE}/api/v2/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, getHeaders(`/product-i.${shopid}.${itemid}`));
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'Mobile web API',
-      fn: async () => {
-        await delay(500 + Math.random() * 500);
-        const mobileHeaders = {
-          ...getHeaders('/'),
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        };
-        const url = `https://shopee.com.br/api/v4/item/get?itemid=${itemid}&shopid=${shopid}`;
-        const response = await fetchWithRetry(url, mobileHeaders, 2);
-        if (!response.ok) return null;
-        const json = await response.json();
-        const item = json?.data?.item || json?.data || json?.item;
-        return item ? parseProduct(item) : null;
-      }
-    },
-    {
-      label: 'HTML scraping (incoming URL)',
-      fn: async () => {
-        if (!incomingUrl) return null;
-        await delay(650 + Math.random() * 650);
-        const response = await fetchWithRetry(incomingUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        console.log(`Incoming URL HTML size: ${html.length} chars`);
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'HTML scraping (product page)',
-      fn: async () => {
-        await delay(700 + Math.random() * 700);
-        const response = await fetchWithRetry(canonicalProductUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        console.log(`HTML page size: ${html.length} chars`);
-        console.log(`Contains __NEXT_DATA__: ${html.includes('__NEXT_DATA__')}`);
-        console.log(`Contains __INITIAL_STATE__: ${html.includes('__INITIAL_STATE__')}`);
-        console.log(`Contains ld+json: ${html.includes('application/ld+json')}`);
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'HTML scraping (alternate URL)',
-      fn: async () => {
-        await delay(600 + Math.random() * 500);
-        const response = await fetchWithRetry(alternateProductUrl, htmlHeaders);
-        if (!response.ok) return null;
-        const html = await response.text();
-        return parseProductFromHtml(html, shopid, itemid);
-      }
-    },
-    {
-      label: 'Headless render (dynamic JS)',
-      fn: async () => {
-        const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
-        if (!renderedHtml) return null;
-        return parseProductFromHtml(renderedHtml, shopid, itemid);
-      }
-    },
-  ];
+  const candidateUrls = [incomingUrl, canonicalProductUrl, alternateProductUrl].filter(Boolean);
+  const visitedUrls = new Set<string>();
 
-  for (const strategy of strategies) {
+  for (const targetUrl of candidateUrls) {
+    if (visitedUrls.has(targetUrl)) continue;
+    visitedUrls.add(targetUrl);
+
     try {
-      console.log(`Trying: ${strategy.label}`);
-      const rawResult = await strategy.fn();
-      const result = rawResult ? enrichProductData(rawResult) : null;
+      console.log(`Trying HTML scrape: ${targetUrl}`);
+      const html = await fetchHtmlWithSingleRetry(targetUrl, `/product-i.${shopid}.${itemid}`);
+      if (!html) continue;
+
+      console.log(`Fetched HTML size: ${html.length} chars`);
+      const parsed = parseProductFromHtml(html, shopid, itemid);
+      const result = parsed ? enrichProductData(parsed) : null;
 
       if (result && hasUsefulProductData(result)) {
-        console.log(`Success: ${strategy.label} — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        console.log(`Success: HTML scrape — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
         return result;
       }
 
-      console.log(`${strategy.label}: returned but with no useful data`);
+      console.log('HTML scrape returned partial data; trying next source');
     } catch (err) {
-      console.log(`${strategy.label} failed:`, err);
+      console.log('HTML scrape failed:', err);
     }
   }
 
-  // Last fallback: infer title from URL slug (without inventing fake price/sales)
-  if (incomingUrl) {
-    try {
-      const parsed = new URL(incomingUrl);
-      const slugPart = decodeURIComponent(parsed.pathname.split('/').pop() || '')
-        .replace(/-i\.\d+\.\d+.*/i, '')
-        .replace(/[-_]+/g, ' ')
-        .trim();
-
-      if (slugPart && slugPart.length >= 8) {
-        console.log('Using URL slug fallback title only');
-        const minimal = enrichProductData(parseProduct({
-          itemid: Number(itemid),
-          shopid: Number(shopid),
-          name: slugPart,
-          currency: 'BRL',
-        }));
-
-        // Return minimal only if title exists; caller decides if sufficient
-        if (minimal?.title) return minimal;
+  try {
+    console.log('Trying headless render fallback (JS rendered)');
+    const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
+    if (renderedHtml) {
+      const parsed = parseProductFromHtml(renderedHtml, shopid, itemid);
+      const result = parsed ? enrichProductData(parsed) : null;
+      if (result && hasUsefulProductData(result)) {
+        console.log(`Success: headless render fallback — price=${result.price}, sold=${result.historicalSold}, rating=${result.ratingCount}`);
+        return result;
       }
-    } catch {
-      // no-op
     }
+  } catch (err) {
+    console.log('Headless render fallback failed:', err);
   }
 
   return null;
