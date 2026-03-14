@@ -1474,6 +1474,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
+          data: product,
           product,
           competitors: competitors.slice(0, 20),
           metrics,
