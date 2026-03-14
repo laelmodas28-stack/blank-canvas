@@ -172,6 +172,50 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
   throw new Error('Max retries exceeded');
 }
 
+function getShopeeHtmlHeaders(refererPath = '/') {
+  return {
+    ...getHeaders(refererPath),
+    'User-Agent': 'Mozilla/5.0',
+    'Accept': 'text/html',
+  };
+}
+
+async function fetchHtmlWithSingleRetry(url: string, refererPath = '/'): Promise<string | null> {
+  const headers = getShopeeHtmlHeaders(refererPath);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        const html = await response.text();
+        return html || null;
+      }
+
+      if (attempt === 0) {
+        await delay(450 + Math.random() * 450);
+        continue;
+      }
+
+      console.log(`HTML fetch failed (${response.status}) for ${url}`);
+      return null;
+    } catch (error) {
+      if (attempt === 0) {
+        await delay(450 + Math.random() * 450);
+        continue;
+      }
+
+      console.log(`HTML fetch error for ${url}:`, error);
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function parseProduct(item: any) {
   const ctime = firstPositiveNumber(item?.ctime, item?.cmt_time, item?.create_time);
   const isFromLd = Boolean(item?._fromLd);
