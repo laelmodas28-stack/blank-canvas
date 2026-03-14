@@ -192,25 +192,151 @@ function extractSelectedModelIdFromUrl(rawUrl?: string): number {
   return 0;
 }
 
+function decodeHtmlText(html: string): string {
+  return html
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseHumanCount(raw: string, hasMilToken = false): number {
+  const base = toNumber(raw);
+  if (base <= 0) return 0;
+  const normalizedMil = hasMilToken || /mil/i.test(raw);
+  return Math.round(normalizedMil ? base * 1000 : base);
+}
+
 function extractVisiblePriceRangeFromHtml(html: string): { min: number; max: number } | null {
   if (!html) return null;
 
-  // Most common visible format in Shopee BR: R$24,89 - R$33,90
-  const rangeMatch = html.match(/R\$\s*([\d.]+,[\d]{2})\s*[-–]\s*R\$\s*([\d.]+,[\d]{2})/i);
-  if (rangeMatch) {
+  const text = decodeHtmlText(html);
+
+  const rangePatterns = [
+    /R\$\s*([\d.,]{1,16})\s*(?:-|–|a)\s*R\$\s*([\d.,]{1,16})/i,
+    /([\d.,]{1,16})\s*[-–]\s*R\$\s*([\d.,]{1,16})/i,
+  ];
+
+  for (const pattern of rangePatterns) {
+    const rangeMatch = text.match(pattern);
+    if (!rangeMatch) continue;
+
     const min = toNumber(rangeMatch[1]);
     const max = toNumber(rangeMatch[2]);
-    if (min > 0 && max > 0) return { min: Math.min(min, max), max: Math.max(min, max) };
+    if (min > 0 && max > 0) {
+      return { min: Math.min(min, max), max: Math.max(min, max) };
+    }
   }
 
-  // Single price format: R$24,89
-  const singleMatch = html.match(/R\$\s*([\d.]+,[\d]{2})/i);
-  if (singleMatch) {
-    const value = toNumber(singleMatch[1]);
-    if (value > 0) return { min: value, max: value };
+  const values = Array.from(text.matchAll(/R\$\s*([\d.,]{1,16})/gi))
+    .map((m) => toNumber(m[1]))
+    .filter((n) => n > 0.01 && n < 100000);
+
+  if (values.length === 0) return null;
+
+  // Prefer first visible prices near the product header (usually first 6)
+  const firstSlice = values.slice(0, 6);
+  const bestMin = Math.min(...firstSlice);
+  const bestMax = Math.max(...firstSlice);
+
+  return { min: bestMin, max: bestMax };
+}
+
+function extractVisibleListingSignals(html: string): {
+  priceMin?: number;
+  priceMax?: number;
+  sold?: number;
+  ratingCount?: number;
+  ratingStar?: number;
+  stock?: number;
+} {
+  if (!html) return {};
+
+  const text = decodeHtmlText(html);
+  const priceRange = extractVisiblePriceRangeFromHtml(html);
+
+  const soldMatch = text.match(/([\d.,]+)\s*(mil)?\+?\s*vendidos?/i);
+  const ratingCountMatch = text.match(/([\d.,]+)\s*(mil)?\s*avalia(?:ç|c)[õo]es?/i);
+  const stockMatch = text.match(/(\d[\d.]*)\s*(?:pe[çc]as|itens|unidades)\s+dispon[ií]veis/i);
+
+  let ratingStar = 0;
+  const ratingNearReviews = text.match(/(\d(?:[.,]\d+)?)\s*(?:★|⭐)?\s*([\d.,]+\s*(?:mil)?\s*avalia(?:ç|c)[õo]es?)/i);
+  if (ratingNearReviews) {
+    ratingStar = toNumber(ratingNearReviews[1]);
   }
 
-  return null;
+  return {
+    priceMin: priceRange?.min,
+    priceMax: priceRange?.max,
+    sold: soldMatch ? parseHumanCount(soldMatch[1], Boolean(soldMatch[2])) : undefined,
+    ratingCount: ratingCountMatch ? parseHumanCount(ratingCountMatch[1], Boolean(ratingCountMatch[2])) : undefined,
+    ratingStar: ratingStar > 0 ? ratingStar : undefined,
+    stock: stockMatch ? Math.round(toNumber(stockMatch[1])) : undefined,
+  };
+}
+
+function applyVisibleSignals(parsed: any, signals: ReturnType<typeof extractVisibleListingSignals>) {
+  if (!signals) return parsed;
+
+  if (signals.priceMin && signals.priceMin > 0) {
+    const visibleMin = signals.priceMin;
+    const visibleMax = Math.max(signals.priceMax || visibleMin, visibleMin);
+    const current = toNumber(parsed.price);
+    const mismatch = current <= 0 || Math.abs(current - visibleMin) / visibleMin > 0.2;
+
+    if (mismatch) {
+      parsed.price = visibleMin;
+      parsed.current_price = visibleMin;
+      parsed.priceMin = visibleMin;
+      parsed.priceMax = visibleMax;
+      if (toNumber(parsed.originalPrice) <= 0 || toNumber(parsed.originalPrice) < visibleMin) {
+        parsed.originalPrice = visibleMax;
+        parsed.original_price = visibleMax;
+      }
+    }
+  }
+
+  if (signals.stock && signals.stock > 0) {
+    const currentStock = toNumber(parsed.stock);
+    const stockMismatch = currentStock <= 0 || currentStock < signals.stock * 0.5;
+    if (stockMismatch) {
+      parsed.stock = signals.stock;
+      parsed.stock_available = signals.stock;
+    }
+  }
+
+  if (signals.sold && signals.sold > 0) {
+    const currentSold = toNumber(parsed.historicalSold);
+    const soldMismatch = currentSold <= 0 || Math.abs(currentSold - signals.sold) > Math.max(100, signals.sold * 0.3);
+    if (soldMismatch) {
+      parsed.historicalSold = signals.sold;
+      parsed.historical_sold = signals.sold;
+    }
+  }
+
+  if (signals.ratingCount && signals.ratingCount > 0) {
+    const currentReviews = toNumber(parsed.ratingCount);
+    const reviewMismatch = currentReviews <= 0 || Math.abs(currentReviews - signals.ratingCount) > Math.max(50, signals.ratingCount * 0.35);
+    if (reviewMismatch) {
+      parsed.ratingCount = signals.ratingCount;
+      parsed.review_count = signals.ratingCount;
+    }
+  }
+
+  if (signals.ratingStar && signals.ratingStar > 0) {
+    const currentStar = toNumber(parsed.ratingAvg);
+    const starMismatch = currentStar <= 0 || Math.abs(currentStar - signals.ratingStar) > 0.4;
+    if (starMismatch) {
+      parsed.ratingAvg = signals.ratingStar;
+      parsed.rating_star = signals.ratingStar;
+    }
+  }
+
+  return parsed;
 }
 
 function normalizeImage(image: unknown): string {
