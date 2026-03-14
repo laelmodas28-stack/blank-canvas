@@ -985,16 +985,20 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
           fallbackObject.name,
           extract([/"item_name"\s*:\s*"([^"]+)"/, /"product_title"\s*:\s*"([^"]+)"/]),
         )),
-        price: firstPositiveNumber(
+        price_min: firstPositiveNumber(
           fallbackObject.price,
-          extractNumber([/"price_before_discount"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+          extractNumber([/"price_min"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_min"\s*:\s*(\d+)/]),
+        ),
+        price_max: firstPositiveNumber(
+          extractNumber([/"price_max"\s*:\s*(\d+)/, /"price_info"\s*:\s*\{[\s\S]{0,220}?"price_max"\s*:\s*(\d+)/]),
+          fallbackObject.price,
         ),
         historical_sold: firstPositiveNumber(
           fallbackObject.historical_sold,
-          extractNumber([/"item_sold"\s*:\s*(\d+)/, /"sold_quantity"\s*:\s*(\d+)/]),
+          extractNumber([/"historical_sold"\s*:\s*(\d+)/]),
         ),
-        cmt_count: firstPositiveNumber(
-          fallbackObject.cmt_count,
+        rating_count: firstPositiveNumber(
+          fallbackObject.rating_count,
           extractNumber([/"rating_count"\s*:\s*(\d+)/, /"review_count"\s*:\s*(\d+)/]),
         ),
       });
