@@ -1323,51 +1323,91 @@ async function fetchRenderedHtmlWithHeadless(url: string): Promise<string | null
 
 // Primary: Try Shopee's internal item API (most accurate data source)
 async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedModelId = 0): Promise<any | null> {
-  const apiUrls = [
-    `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
-    `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+  const refPath = `/product-i.${shopid}.${itemid}`;
+
+  // Multiple API endpoints to try — different versions have different blocking patterns
+  const apiConfigs = [
+    // PDP (Product Detail Page) API — often less protected
+    {
+      label: 'pdp/get_pc',
+      url: `${SHOPEE_BASE}/api/v4/pdp/get_pc?shop_id=${shopid}&item_id=${itemid}&pickup_campus_id=`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data?.item || json?.data?.product || json?.data,
+    },
+    // Standard v4 item API
+    {
+      label: 'v4/item/get',
+      url: `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // v2 item API
+    {
+      label: 'v2/item/get',
+      url: `${SHOPEE_BASE}/api/v2/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // Mobile API — different blocking rules
+    {
+      label: 'mobile/v4',
+      url: `${SHOPEE_BASE}/api/v4/item/get?shopid=${shopid}&itemid=${itemid}`,
+      headers: getHeaders(refPath, 'mobile'),
+      extract: (json: any) => json?.data || json?.item || json?.item_basic || json,
+    },
+    // PDP v2
+    {
+      label: 'pdp/get (v2)',
+      url: `${SHOPEE_BASE}/api/v2/pdp/get?shop_id=${shopid}&item_id=${itemid}`,
+      headers: getHeaders(refPath, 'api'),
+      extract: (json: any) => json?.data?.item || json?.data?.product || json?.data,
+    },
   ];
 
-  for (const apiUrl of apiUrls) {
+  for (const config of apiConfigs) {
     try {
-      console.log(`Trying Shopee item API: ${apiUrl}`);
-      const response = await fetchWithRetry(apiUrl, getHeaders(`/product-i.${shopid}.${itemid}`), 2);
+      console.log(`Trying Shopee API [${config.label}]`);
+      const response = await fetchWithRetry(config.url, config.headers, 1);
       
       if (!response.ok) {
-        console.log(`Item API returned ${response.status}`);
+        console.log(`[${config.label}] returned ${response.status}`);
+        await delay(200 + Math.random() * 300);
         continue;
       }
 
       const json = await response.json();
-      const itemData = json?.data || json?.item || json?.item_basic || json;
+      const itemData = config.extract(json);
       
-      if (!itemData || typeof itemData !== 'object') continue;
-
-      // Verify we got the right product
-      const gotItemid = toNumber(itemData?.itemid);
-      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
-        console.log(`Item API returned wrong itemid: ${gotItemid} vs ${itemid}`);
+      if (!itemData || typeof itemData !== 'object') {
+        console.log(`[${config.label}] returned empty data`);
         continue;
       }
 
-      // Set IDs if missing
-      if (!itemData.itemid) itemData.itemid = Number(itemid);
-      if (!itemData.shopid) itemData.shopid = Number(shopid);
+      // Verify we got the right product
+      const gotItemid = toNumber(itemData?.itemid || itemData?.item_id);
+      if (gotItemid > 0 && gotItemid !== Number(itemid)) {
+        console.log(`[${config.label}] returned wrong itemid: ${gotItemid} vs ${itemid}`);
+        continue;
+      }
+
+      // Normalize ID fields
+      if (!itemData.itemid) itemData.itemid = itemData.item_id || Number(itemid);
+      if (!itemData.shopid) itemData.shopid = itemData.shop_id || Number(shopid);
 
       const parsed = parseProduct({ ...itemData, _selectedModelId: selectedModelId });
       const result = enrichProductData(parsed);
 
       if (hasUsefulProductData(result)) {
-        console.log(`Success: Shopee item API — price=${result.price}, priceMin=${result.priceMin}, priceMax=${result.priceMax}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
+        console.log(`Success: [${config.label}] — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}, rating=${result.ratingAvg}, reviews=${result.ratingCount}`);
         return result;
       }
 
-      console.log('Item API returned partial data, trying next source');
+      console.log(`[${config.label}] returned partial data, trying next`);
     } catch (err) {
-      console.log('Item API failed:', err);
+      console.log(`[${config.label}] failed:`, err);
     }
 
-    await delay(300 + Math.random() * 300);
+    await delay(200 + Math.random() * 300);
   }
 
   return null;
@@ -1376,17 +1416,28 @@ async function fetchFromShopeeItemApi(shopid: string, itemid: string, selectedMo
 async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: string) {
   const selectedModelId = extractSelectedModelIdFromUrl(sourceUrl);
 
-  // 1) Try Shopee's direct item API first (most accurate)
+  // 1) Try Shopee's direct item APIs first (most accurate)
   const apiResult = await fetchFromShopeeItemApi(shopid, itemid, selectedModelId);
   if (apiResult) return apiResult;
 
-  await delay(500 + Math.random() * 500);
+  await delay(300 + Math.random() * 300);
 
-  // 2) HTML scraping fallback
+  // 2) Scraping proxy fallback (if SCRAPER_API_KEY is configured)
   const canonicalProductUrl = `${SHOPEE_BASE}/product-i.${shopid}.${itemid}`;
-  const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const incomingUrl = typeof sourceUrl === 'string' && sourceUrl.includes('shopee') ? sourceUrl : '';
 
+  const proxyHtml = await fetchViaScrapingProxy(incomingUrl || canonicalProductUrl);
+  if (proxyHtml) {
+    const parsed = parseProductFromHtml(proxyHtml, shopid, itemid, selectedModelId);
+    const result = parsed ? enrichProductData(parsed) : null;
+    if (result && hasUsefulProductData(result)) {
+      console.log(`Success: scraping proxy — price=${result.price}, sold=${result.historicalSold}, stock=${result.stock}`);
+      return result;
+    }
+  }
+
+  // 3) HTML scraping fallback
+  const alternateProductUrl = `${SHOPEE_BASE}/-i.${shopid}.${itemid}`;
   const candidateUrls = [incomingUrl, canonicalProductUrl, alternateProductUrl].filter(Boolean);
   const visitedUrls = new Set<string>();
 
@@ -1414,7 +1465,7 @@ async function fetchProductDetails(shopid: string, itemid: string, sourceUrl?: s
     }
   }
 
-  // 3) Headless render fallback
+  // 4) Headless render fallback
   try {
     console.log('Trying headless render fallback (JS rendered)');
     const renderedHtml = await fetchRenderedHtmlWithHeadless(incomingUrl || canonicalProductUrl);
