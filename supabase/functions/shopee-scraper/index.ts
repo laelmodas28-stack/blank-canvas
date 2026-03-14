@@ -642,6 +642,52 @@ function extractJsonObjectsAfterAssignments(source: string, assignmentRegexes: R
   return blocks;
 }
 
+function extractJsonFromJsonParseAssignments(source: string, assignmentRegexes: RegExp[]): any[] {
+  const blocks: any[] = [];
+  const seen = new Set<string>();
+
+  for (const assignmentRegex of assignmentRegexes) {
+    const regex = assignmentRegex.global ? assignmentRegex : new RegExp(assignmentRegex.source, `${assignmentRegex.flags}g`);
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(source)) !== null) {
+      const assignmentEnd = match.index + match[0].length;
+      const tail = source.slice(assignmentEnd, assignmentEnd + 350000);
+      const parseCall = tail.match(/JSON\.parse\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\)/);
+      if (!parseCall?.[1]) continue;
+
+      let decoded = '';
+      const literal = parseCall[1];
+
+      try {
+        if (literal.startsWith('"')) {
+          decoded = JSON.parse(literal);
+        } else {
+          // Single-quoted JS string fallback
+          const normalized = literal
+            .slice(1, -1)
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, '\\')
+            .replace(/\"/g, '"');
+          decoded = normalized;
+        }
+      } catch {
+        continue;
+      }
+
+      if (!decoded || seen.has(decoded)) continue;
+
+      const parsed = tryParseJson(decoded);
+      if (parsed) {
+        seen.add(decoded);
+        blocks.push(parsed);
+      }
+    }
+  }
+
+  return blocks;
+}
+
 // Deep JSON extraction from HTML — prioritizes INITIAL_STATE/NEXT_DATA payloads
 function extractProductFromPageJson(html: string, shopid: string, itemid: string): any | null {
   const parsedShopid = Number(shopid);
