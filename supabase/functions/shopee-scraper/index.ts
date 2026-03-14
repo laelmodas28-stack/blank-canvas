@@ -1008,6 +1008,26 @@ function parseProductFromHtml(html: string, shopid: string, itemid: string, sele
       }
     }
 
+    // Validate/override price using visible page price when available
+    if (visiblePriceRange && visiblePriceRange.min > 0) {
+      const visibleMin = visiblePriceRange.min;
+      const visibleMax = visiblePriceRange.max > 0 ? visiblePriceRange.max : visibleMin;
+      const currentPrice = toNumber(parsed.price);
+      const mismatch = currentPrice > 0 && Math.abs(currentPrice - visibleMin) / visibleMin > 0.35;
+
+      if (mismatch || currentPrice <= 0) {
+        parsed.price = visibleMin;
+        parsed.current_price = visibleMin;
+        parsed.priceMin = visibleMin;
+        parsed.priceMax = Math.max(visibleMin, visibleMax);
+
+        if (toNumber(parsed.originalPrice) <= 0 || toNumber(parsed.originalPrice) < parsed.price) {
+          parsed.originalPrice = parsed.priceMax;
+          parsed.original_price = parsed.priceMax;
+        }
+      }
+    }
+
     if (!hasUsefulProductData(parsed)) {
       return null;
     }
