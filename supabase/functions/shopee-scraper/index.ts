@@ -383,6 +383,13 @@ function scoreProductCandidate(candidate: any, targetItemid: number, targetShopi
   return itemMatchScore + shopMatchScore + titleScore + priceScore + soldScore + ratingScore + reviewScore + stockScore + imageScore;
 }
 
+type CandidateTraversalState = {
+  visited: number;
+  maxVisited: number;
+  maxDepth: number;
+  maxCandidates: number;
+};
+
 function collectProductCandidates(
   obj: any,
   targetItemid: number,
@@ -390,10 +397,14 @@ function collectProductCandidates(
   depth = 0,
   seen = new WeakSet<object>(),
   out: any[] = [],
+  state: CandidateTraversalState = { visited: 0, maxVisited: 3500, maxDepth: 10, maxCandidates: 120 },
 ): any[] {
-  if (depth > 14 || !obj || typeof obj !== 'object') return out;
-  if (seen.has(obj)) return out;
+  if (!obj || typeof obj !== 'object') return out;
+  if (depth > state.maxDepth || seen.has(obj)) return out;
+  if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) return out;
+
   seen.add(obj);
+  state.visited += 1;
 
   const itemIdCandidate = toNumber(obj?.itemid);
   const shopIdCandidate = toNumber(obj?.shopid);
@@ -401,11 +412,13 @@ function collectProductCandidates(
   if (itemIdCandidate === targetItemid) {
     if (!targetShopid || !shopIdCandidate || shopIdCandidate === targetShopid) {
       out.push(obj);
+      if (out.length >= state.maxCandidates) return out;
     }
   }
 
   const embeddedNodes = [obj?.item, obj?.item_basic, obj?.itemDetail, obj?.item_data, obj?.data?.item, obj?.item_info];
   for (const node of embeddedNodes) {
+    if (out.length >= state.maxCandidates) return out;
     if (node && typeof node === 'object' && toNumber(node?.itemid) === targetItemid) {
       const nodeShopId = toNumber(node?.shopid);
       if (!targetShopid || !nodeShopId || nodeShopId === targetShopid) {
@@ -416,13 +429,15 @@ function collectProductCandidates(
 
   if (Array.isArray(obj)) {
     for (const entry of obj) {
-      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out);
+      if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) break;
+      collectProductCandidates(entry, targetItemid, targetShopid, depth + 1, seen, out, state);
     }
     return out;
   }
 
   for (const key of Object.keys(obj)) {
-    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out);
+    if (state.visited >= state.maxVisited || out.length >= state.maxCandidates) break;
+    collectProductCandidates(obj[key], targetItemid, targetShopid, depth + 1, seen, out, state);
   }
 
   return out;
