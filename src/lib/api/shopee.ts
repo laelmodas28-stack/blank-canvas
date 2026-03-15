@@ -46,8 +46,13 @@ export interface AnalyzeLinkResult {
   product?: ShopeeProduct;
   competitors?: ShopeeProduct[];
   metrics?: MarketMetrics;
+  analysis?: any;
+  marketIntelligence?: MarketIntelligence;
   fromCache?: boolean;
   dataSource?: string;
+  dataFields?: string[];
+  dataQuality?: string;
+  blockedByShopee?: boolean;
 }
 
 export interface SearchResult {
