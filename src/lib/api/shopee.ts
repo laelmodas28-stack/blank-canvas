@@ -27,6 +27,17 @@ export interface MarketMetrics {
   competitors: number;
   estimatedRevenue: number;
   opportunityScore: number;
+  average_market_price?: number;
+  competitor_count?: number;
+}
+
+export interface MarketIntelligence {
+  estimated_daily_sales: number;
+  sales_last_7_days: number;
+  sales_last_30_days: number;
+  estimated_monthly_revenue: number;
+  competitor_count: number;
+  average_market_price: number;
 }
 
 export interface AnalyzeLinkResult {
