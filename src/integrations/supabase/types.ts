@@ -65,6 +65,33 @@ export type Database = {
         }
         Relationships: []
       }
+      shopee_analysis: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          item_id: string | null
+          shop_id: string | null
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          id?: string
+          item_id?: string | null
+          shop_id?: string | null
+          url: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          item_id?: string | null
+          shop_id?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
