@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.generate-listing]
 verify_jwt = false
+
+[functions.analyze-shopee-listing]
+verify_jwt = false
