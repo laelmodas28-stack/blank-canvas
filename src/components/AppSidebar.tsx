@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Trophy,
   Search,
+  ImagePlus,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -31,6 +32,7 @@ const inteligenciaItems = [
 
 const anunciosItems = [
   { title: "Criar Anúncio com IA", url: "/criar-anuncio", icon: Sparkles },
+  { title: "Gerador de Imagens IA", url: "/gerador-imagens", icon: ImagePlus },
 ];
 
 const historicoItems = [
