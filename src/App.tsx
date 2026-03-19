@@ -23,6 +23,7 @@ function App() {
           <Route path="/precificacao" element={<Precificacao />} />
           <Route path="/simulador-preco" element={<SimuladorPreco />} />
           <Route path="/radar-produtos" element={<RadarProdutos />} />
+          <Route path="/gerador-imagens" element={<GeradorImagens />} />
           <Route path="/analise-mercado" element={<AnaliseMercado />} />
           <Route path="/produtos-vencedores" element={<ProdutosVencedores />} />
           <Route path="/cacador-produtos" element={<CacadorProdutos />} />
