@@ -6,12 +6,122 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+type ListingStyle = "persuasivo" | "profissional" | "premium";
+
+interface ListingInput {
+  productName: string;
+  category?: string;
+  differentials?: string;
+  style?: ListingStyle;
+}
+
+const truncate = (text: string, max: number) =>
+  text.length <= max ? text : `${text.slice(0, max - 1).trim()}…`;
+
+const toKeywords = (input: ListingInput): string[] => {
+  const baseTerms = [
+    input.productName,
+    input.category || "",
+    "oferta",
+    "qualidade",
+    "pronta entrega",
+    "custo benefício",
+    "envio rápido",
+    "original",
+    "promoção",
+    "mais vendido",
+    "compra segura",
+    "marketplace",
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/[|]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .split(/\s+/)
+    .filter((term) => term.length > 2);
+
+  const differentialTerms = (input.differentials || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  const unique = Array.from(new Set([...differentialTerms, ...baseTerms]));
+  return unique.slice(0, 10);
+};
+
+const buildFallbackListing = (input: ListingInput) => {
+  const styleLabel: Record<ListingStyle, string> = {
+    persuasivo: "impacto no dia a dia",
+    profissional: "desempenho consistente",
+    premium: "acabamento sofisticado",
+  };
+
+  const style = (input.style || "persuasivo") as ListingStyle;
+  const categorySegment = input.category ? ` | ${input.category}` : "";
+  const diffText = input.differentials?.trim() || "qualidade e praticidade";
+
+  const shopeeTitles = [
+    `${input.productName} com ${styleLabel[style]}${categorySegment} Pronta Entrega`,
+    `${input.productName} ${diffText} Alta Qualidade Oferta Especial`,
+    `${input.productName} Original ${categorySegment.replace("|", "")} Envio Rápido`,
+  ].map((text) => truncate(text.replace(/\s+/g, " ").trim(), 120));
+
+  const mercadoLivreTitles = [
+    `${input.productName} ${input.category || ""} Alta Qualidade`,
+    `${input.productName} Original Envio Rápido`,
+  ].map((text) => truncate(text.replace(/\s+/g, " ").trim(), 60));
+
+  const titles = [
+    ...shopeeTitles.map((text) => ({ text, platform: "Shopee", charCount: text.length })),
+    ...mercadoLivreTitles.map((text) => ({
+      text,
+      platform: "Mercado Livre",
+      charCount: text.length,
+    })),
+  ];
+
+  const description = `## Introdução atrativa
+${input.productName} foi pensado para quem busca eficiência, qualidade e excelente apresentação no marketplace. Este produto combina visual moderno com desempenho confiável, ajudando você a oferecer uma experiência melhor para seus clientes e aumentar o potencial de conversão do seu anúncio.
+
+## Vantagens do produto
+Ao escolher ${input.productName}, você entrega uma solução prática para diferentes rotinas, com foco em durabilidade e facilidade de uso. É uma opção estratégica para vendedores que desejam reduzir dúvidas no pós-venda e melhorar a satisfação dos compradores.
+
+## Características principais
+• Construção com foco em resistência e uso contínuo
+• Excelente relação custo-benefício para revenda
+• Boa aceitação em buscas de marketplace
+• Acabamento que valoriza o produto na vitrine
+
+## Cenários de uso
+Ideal para uso diário, para presentear ou para compor kits de venda. Também se adapta bem a públicos que procuram praticidade, desempenho e um item com ótima percepção de valor.
+
+## Benefícios para o cliente
+Além de oferecer funcionalidade, ${input.productName} contribui para uma rotina mais confortável e eficiente. O cliente percebe qualidade no primeiro contato, ganha confiança na compra e tende a avaliar melhor o anúncio quando encontra informações claras e objetivas.
+
+## Detalhes do produto
+Categoria: ${input.category || "Não informada"}
+Diferenciais: ${diffText}
+Compatibilidade e aplicação: ampla, conforme a necessidade de uso
+
+## Por que escolher este produto
+Este produto se destaca pela combinação de desempenho, apresentação e competitividade. É uma escolha segura para quem quer vender mais com um anúncio profissional e foco em conversão.
+
+## Incentivo à compra
+Aproveite para garantir ${input.productName} agora e ofereça ao seu cliente um item de qualidade, com entrega rápida e ótimo custo-benefício.`;
+
+  return {
+    titles,
+    description,
+    keywords: toKeywords(input),
+  };
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
 
   try {
-    const { productName, category, differentials, style } = await req.json();
+    const { productName, category, differentials, style }: ListingInput = await req.json();
 
     if (!productName?.trim()) {
       return new Response(
@@ -105,6 +215,22 @@ Retorne APENAS o JSON, sem nenhum texto adicional.`;
     );
 
     if (!response.ok) {
+      if (response.status === 402) {
+        const fallback = buildFallbackListing({ productName, category, differentials, style });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            fallback: true,
+            notice:
+              "IA temporariamente indisponível por limite de créditos. Geramos uma versão de contingência para você continuar.",
+            data: fallback,
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns segundos." }),
@@ -136,9 +262,17 @@ Retorne APENAS o JSON, sem nenhum texto adicional.`;
       parsed = JSON.parse(content);
     } catch {
       console.error("Failed to parse AI response:", content);
+      const fallback = buildFallbackListing({ productName, category, differentials, style });
       return new Response(
-        JSON.stringify({ error: "Erro ao processar resposta da IA. Tente novamente." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          success: true,
+          fallback: true,
+          notice: "Resposta da IA veio em formato inválido. Retornamos uma versão de contingência.",
+          data: fallback,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
