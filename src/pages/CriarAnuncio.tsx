@@ -54,7 +54,11 @@ export default function CriarAnuncio() {
       if (!data?.success || !data?.data) throw new Error("Resposta inválida da IA");
 
       setResult(data.data);
-      toast.success("Anúncio gerado com sucesso!");
+      if (data?.fallback) {
+        toast.warning(data?.notice || "Modo de contingência ativado para geração do anúncio.");
+      } else {
+        toast.success("Anúncio gerado com sucesso!");
+      }
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Erro ao gerar anúncio");
