@@ -9,6 +9,7 @@ import {
   Package,
   Target,
   TrendingUp,
+  Brain,
 } from "lucide-react";
 
 const cards = [
@@ -81,6 +82,26 @@ export default function Dashboard() {
           Bem-vindo à sua plataforma de inteligência para marketplaces.
         </p>
       </div>
+
+      {/* Central de Estratégia - Highlight */}
+      <button
+        onClick={() => navigate("/estrategia")}
+        className="w-full mb-6 group relative overflow-hidden bg-gradient-to-br from-primary to-primary/80 rounded-xl p-6 text-left text-primary-foreground hover:shadow-lg transition-all"
+      >
+        <div className="flex items-start gap-4">
+          <div className="h-11 w-11 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
+            <Brain className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider opacity-80">Novo módulo</p>
+            <h3 className="text-lg font-semibold">Central de Estratégia Inteligente</h3>
+            <p className="text-sm opacity-90 mt-1">
+              A IA CEO analisa seus relatórios de Shopee e Mercado Livre e recomenda ações para maximizar seu Lucro Líquido.
+            </p>
+          </div>
+          <ArrowRight className="h-5 w-5 opacity-70 group-hover:translate-x-1 transition-transform shrink-0 mt-1" />
+        </div>
+      </button>
 
       {/* Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
