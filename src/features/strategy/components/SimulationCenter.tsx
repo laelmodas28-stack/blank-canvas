@@ -50,12 +50,14 @@ export function SimulationCenter() {
       }>("simulation_interpretation", { base: inputs, cenario: scenario, calculado: out });
       setInterpretation(ai.interpretacao);
       setFinalReco(ai.recomendacao_final);
-      await supabase.from("strategy_simulations").insert({
-        scenario: JSON.stringify(scenario),
-        inputs: inputs as unknown as Record<string, unknown>,
-        results: out as unknown as Record<string, unknown>,
-        ai_interpretation: ai.interpretacao,
-      });
+      await supabase.from("strategy_simulations").insert([
+        {
+          scenario: JSON.stringify(scenario),
+          inputs: JSON.parse(JSON.stringify(inputs)),
+          results: JSON.parse(JSON.stringify(out)),
+          ai_interpretation: ai.interpretacao,
+        },
+      ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha na interpretação da IA");
     } finally {
