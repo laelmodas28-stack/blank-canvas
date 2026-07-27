@@ -12,11 +12,16 @@ import {
   Trophy,
   Search,
   ImagePlus,
+  Brain,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+
+const estrategiaItems = [
+  { title: "Central de Estratégia", url: "/estrategia", icon: Brain },
+];
 
 const precificacaoItems = [
   { title: "Calculadora de Lucro", url: "/precificacao", icon: Calculator },
@@ -132,6 +137,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
           {!collapsed && <span>Dashboard</span>}
         </NavLink>
 
+        <MenuGroup label="Estratégia" items={estrategiaItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Precificação" items={precificacaoItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Inteligência de Mercado" items={inteligenciaItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Anúncios" items={anunciosItems} collapsed={collapsed} currentPath={currentPath} />

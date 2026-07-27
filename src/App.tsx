@@ -12,6 +12,7 @@ import CriarAnuncio from "./pages/CriarAnuncio";
 import Historico from "./pages/Historico";
 import Configuracoes from "./pages/Configuracoes";
 import Preferencias from "./pages/Preferencias";
+import CentralEstrategia from "./pages/CentralEstrategia";
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/estrategia" element={<CentralEstrategia />} />
           <Route path="/precificacao" element={<Precificacao />} />
           <Route path="/simulador-preco" element={<SimuladorPreco />} />
           <Route path="/radar-produtos" element={<RadarProdutos />} />
