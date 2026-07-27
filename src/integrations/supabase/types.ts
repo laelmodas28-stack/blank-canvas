@@ -92,6 +92,176 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_alerts: {
+        Row: {
+          category: string
+          created_at: string
+          data: Json | null
+          dismissed: boolean
+          id: string
+          message: string
+          severity: string
+          title: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          data?: Json | null
+          dismissed?: boolean
+          id?: string
+          message: string
+          severity?: string
+          title: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          data?: Json | null
+          dismissed?: boolean
+          id?: string
+          message?: string
+          severity?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      strategy_imports: {
+        Row: {
+          created_at: string
+          detected_type: string | null
+          file_name: string
+          file_type: string | null
+          id: string
+          normalized_data: Json
+          row_count: number | null
+          summary: Json | null
+        }
+        Insert: {
+          created_at?: string
+          detected_type?: string | null
+          file_name: string
+          file_type?: string | null
+          id?: string
+          normalized_data?: Json
+          row_count?: number | null
+          summary?: Json | null
+        }
+        Update: {
+          created_at?: string
+          detected_type?: string | null
+          file_name?: string
+          file_type?: string | null
+          id?: string
+          normalized_data?: Json
+          row_count?: number | null
+          summary?: Json | null
+        }
+        Relationships: []
+      }
+      strategy_recommendations: {
+        Row: {
+          category: string
+          confidence: number | null
+          created_at: string
+          estimated_improvement: string | null
+          financial_impact: number | null
+          id: string
+          import_id: string | null
+          priority: number | null
+          reason: string
+          risk: string | null
+          suggested_action: string
+          title: string
+        }
+        Insert: {
+          category: string
+          confidence?: number | null
+          created_at?: string
+          estimated_improvement?: string | null
+          financial_impact?: number | null
+          id?: string
+          import_id?: string | null
+          priority?: number | null
+          reason: string
+          risk?: string | null
+          suggested_action: string
+          title: string
+        }
+        Update: {
+          category?: string
+          confidence?: number | null
+          created_at?: string
+          estimated_improvement?: string | null
+          financial_impact?: number | null
+          id?: string
+          import_id?: string | null
+          priority?: number | null
+          reason?: string
+          risk?: string | null
+          suggested_action?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_recommendations_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_scores: {
+        Row: {
+          created_at: string
+          dimensions: Json
+          explanation: string | null
+          id: string
+          overall_score: number
+        }
+        Insert: {
+          created_at?: string
+          dimensions?: Json
+          explanation?: string | null
+          id?: string
+          overall_score?: number
+        }
+        Update: {
+          created_at?: string
+          dimensions?: Json
+          explanation?: string | null
+          id?: string
+          overall_score?: number
+        }
+        Relationships: []
+      }
+      strategy_simulations: {
+        Row: {
+          ai_interpretation: string | null
+          created_at: string
+          id: string
+          inputs: Json
+          results: Json
+          scenario: string
+        }
+        Insert: {
+          ai_interpretation?: string | null
+          created_at?: string
+          id?: string
+          inputs?: Json
+          results?: Json
+          scenario: string
+        }
+        Update: {
+          ai_interpretation?: string | null
+          created_at?: string
+          id?: string
+          inputs?: Json
+          results?: Json
+          scenario?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
