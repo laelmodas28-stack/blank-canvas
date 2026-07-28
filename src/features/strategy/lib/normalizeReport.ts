@@ -1,5 +1,6 @@
-// Lightweight CSV parser + report type detector for Shopee / Mercado Livre reports.
-// XLSX and PDF are accepted but parsed as raw text (best-effort) since we avoid extra deps.
+// Report normalizer for Shopee / Mercado Livre exports.
+// Supports CSV, TXT, XLSX/XLS (via SheetJS) and best-effort PDF text extraction.
+import * as XLSX from "xlsx";
 
 export interface NormalizedReport {
   fileName: string;
@@ -62,11 +63,15 @@ const parseCsv = (text: string) => {
   const nonEmpty = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (nonEmpty.length === 0) return { headers: [], rows: [] };
   const first = nonEmpty[0];
-  const delimiter =
-    (first.match(/;/g)?.length ?? 0) > (first.match(/,/g)?.length ?? 0) ? ";" : ",";
+  const tabCount = first.match(/\t/g)?.length ?? 0;
+  const semiCount = first.match(/;/g)?.length ?? 0;
+  const commaCount = first.match(/,/g)?.length ?? 0;
+  let delimiter = ",";
+  if (tabCount >= semiCount && tabCount >= commaCount && tabCount > 0) delimiter = "\t";
+  else if (semiCount > commaCount) delimiter = ";";
   const headers = parseCsvLine(first, delimiter).map((h) => h.replace(/^"|"$/g, ""));
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < nonEmpty.length && i <= 2000; i++) {
+  for (let i = 1; i < nonEmpty.length && i <= 5000; i++) {
     const values = parseCsvLine(nonEmpty[i], delimiter);
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => {
@@ -75,6 +80,45 @@ const parseCsv = (text: string) => {
     rows.push(row);
   }
   return { headers, rows };
+};
+
+const parseXlsx = (buffer: ArrayBuffer) => {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const first = wb.SheetNames[0];
+  if (!first) return { headers: [], rows: [], sample: "" };
+  const sheet = wb.Sheets[first];
+  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+    raw: false,
+  });
+  if (json.length === 0) return { headers: [], rows: [], sample: "" };
+  const headers = Object.keys(json[0]);
+  const rows = json.slice(0, 5000).map((r) => {
+    const row: Record<string, string> = {};
+    headers.forEach((h) => {
+      row[h] = String(r[h] ?? "");
+    });
+    return row;
+  });
+  const sample = [headers.join(" | ")]
+    .concat(rows.slice(0, 20).map((r) => headers.map((h) => r[h]).join(" | ")))
+    .join("\n");
+  return { headers, rows, sample };
+};
+
+const parsePdfText = async (buffer: ArrayBuffer): Promise<string> => {
+  // Best-effort: extract ASCII/latin text streams. Complex PDFs need OCR (future).
+  const bytes = new Uint8Array(buffer);
+  let text = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    if (c === 10 || c === 13 || (c >= 32 && c <= 126) || (c >= 160 && c <= 255)) {
+      text += String.fromCharCode(c);
+    } else {
+      text += " ";
+    }
+  }
+  return text.replace(/\s+/g, " ").slice(0, 20000);
 };
 
 const toNumber = (s: string | undefined): number => {
@@ -105,40 +149,61 @@ const buildSummary = (
   return summary;
 };
 
-export const readFileAsText = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
+const readAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
     reader.onerror = () => reject(reader.error);
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   });
+
+const decodeText = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  // Try UTF-8 first, then fallback to latin1 if replacement chars appear
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  if (!utf8.includes("\uFFFD")) return utf8;
+  return new TextDecoder("iso-8859-1").decode(bytes);
 };
 
 export const normalizeReport = async (file: File): Promise<NormalizedReport> => {
-  const text = await readFileAsText(file);
-  const detectedType = detectType(`${file.name}\n${text.slice(0, 4000)}`);
-
-  const looksLikeCsv =
-    /\.csv$/i.test(file.name) ||
-    /\.txt$/i.test(file.name) ||
-    /,|;/.test(text.split("\n")[0] ?? "");
+  const name = file.name.toLowerCase();
+  const buffer = await readAsArrayBuffer(file);
 
   let headers: string[] = [];
   let rows: Record<string, string>[] = [];
-  if (looksLikeCsv) {
+  let rawSample = "";
+  let sniffText = name;
+
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    const parsed = parseXlsx(buffer);
+    headers = parsed.headers;
+    rows = parsed.rows;
+    rawSample = parsed.sample;
+    sniffText = `${name}\n${headers.join(" ")}\n${parsed.sample.slice(0, 4000)}`;
+  } else if (name.endsWith(".pdf")) {
+    const text = await parsePdfText(buffer);
+    rawSample = text.slice(0, 2000);
+    sniffText = `${name}\n${text.slice(0, 4000)}`;
+  } else {
+    // CSV / TXT / unknown text
+    const text = decodeText(buffer);
+    rawSample = text.slice(0, 2000);
     const parsed = parseCsv(text);
     headers = parsed.headers;
     rows = parsed.rows;
+    sniffText = `${name}\n${text.slice(0, 4000)}`;
   }
+
+  const detectedType = detectType(sniffText);
 
   return {
     fileName: file.name,
-    fileType: file.type || "text/plain",
+    fileType: file.type || "application/octet-stream",
     detectedType,
     rowCount: rows.length,
     headers,
     rows,
     summary: buildSummary(headers, rows),
-    rawSample: text.slice(0, 2000),
+    rawSample,
   };
 };
