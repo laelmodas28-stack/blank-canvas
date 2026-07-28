@@ -57,6 +57,7 @@ export function ReportImporter({ onImported }: Props) {
           toast.success(`Relatório importado: ${REPORT_LABELS[normalized.detectedType] ?? normalized.detectedType}`);
         }
       } catch (e) {
+        console.error("[ReportImporter] falha na importação:", e);
         toast.error(e instanceof Error ? e.message : "Falha na importação");
       } finally {
         setBusy(false);
