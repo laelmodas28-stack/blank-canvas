@@ -71,7 +71,7 @@ export function ReportImporter({ onImported }: Props) {
         <div>
           <h3 className="text-base font-semibold text-foreground">Importador de Relatórios</h3>
           <p className="text-xs text-muted-foreground">
-            Envie relatórios da Shopee e Mercado Livre (CSV, TXT). A IA detecta o tipo automaticamente.
+            Envie relatórios da Shopee e Mercado Livre (CSV, XLSX, TXT, PDF). A IA detecta o tipo automaticamente.
           </p>
         </div>
       </div>
