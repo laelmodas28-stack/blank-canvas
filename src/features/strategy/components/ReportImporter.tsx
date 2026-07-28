@@ -95,7 +95,7 @@ export function ReportImporter({ onImported }: Props) {
         <input
           type="file"
           multiple
-          accept=".csv,.txt,.xlsx,.pdf"
+          accept=".csv,.txt,.xlsx,.xls,.pdf,text/csv,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*"
           className="hidden"
           onChange={(e) => void handleFiles(e.target.files)}
         />
@@ -106,9 +106,9 @@ export function ReportImporter({ onImported }: Props) {
             <Upload className="h-6 w-6 text-muted-foreground" />
           )}
           <p className="text-sm text-foreground font-medium">
-            {busy ? "Processando..." : "Arraste arquivos aqui ou clique para selecionar"}
+            {busy ? "Processando..." : "Toque para selecionar da galeria ou arraste arquivos aqui"}
           </p>
-          <p className="text-xs text-muted-foreground">CSV, TXT, XLSX, PDF · até 10 arquivos</p>
+          <p className="text-xs text-muted-foreground">CSV, XLSX, TXT, PDF · até 10 arquivos</p>
         </div>
       </label>
 
