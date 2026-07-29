@@ -1,82 +1,101 @@
-# Central de Estratégia Inteligente
+# Central de Inteligência Financeira Marketplace
 
-Novo módulo que se torna o cérebro do ERP: importa relatórios de Shopee/Mercado Livre, cruza com dados já existentes no banco e gera recomendações estratégicas em Português, focadas em Lucro Líquido, Fluxo de Caixa e Crescimento.
+Novo módulo completo de fechamento financeiro + BI + IA estratégica para vendedores Shopee/Mercado Livre. Vai funcionar como um "CFO Digital" — responde quanto vendeu, quanto realmente ganhou, onde perde dinheiro e o que fazer para crescer.
 
-Toda a interface em PT-BR. Código em inglês. Sem emojis. Layout SaaS limpo, fundo branco, seguindo o padrão atual do app.
+Interface 100% PT-BR, código em inglês, sem emojis, padrão SaaS branco atual do app.
 
-## Escopo desta entrega (Fase 1 — base funcional ponta-a-ponta)
+## Escopo desta entrega (Fase 1 — módulo funcional ponta-a-ponta)
 
-Como o pedido é muito amplo, entrego uma primeira versão completa e utilizável, deixando ganchos claros para expansão. Não vou criar 15 telas vazias — vou criar 1 módulo profundo com sub-áreas navegáveis.
+Como o pedido é muito grande (14 seções), entrego uma versão completa e usável de todas as áreas, deixando ganchos para expansão. Não vou criar 14 telas separadas — vou criar 1 módulo com sub-abas navegáveis, reaproveitando o padrão da Central de Estratégia.
 
-### 1. Nova rota `/estrategia` com sub-abas
-- **Visão Executiva** — resumo diário (IA CEO): top 5 prioridades, maior oportunidade, maior risco, alerta de caixa, alerta de anúncios, alerta de margem.
-- **Análise de Anúncios** — ROAS, ACOS, TACOS, CTR, CPC, CPA, conversão, saturação, canibalização, campanhas destruindo lucro.
-- **Motor de Lucro** — receita bruta/líquida, margens, lucro por SKU/pedido/marketplace/anúncio/dia/mês, custos ocultos, lucro recuperável.
-- **Análise de Produto (SKU)** — lucro real, ROI, preço mínimo, preço ideal, desconto máximo, budget ideal, ROAS ideal, ranking, health, sugestão de recompra.
-- **Central de Simulação** — simular +R$1, +5%, mudar budget, ligar/desligar Shopee Acelera, mudar custo, mudar imposto; retorna impacto em receita, lucro, margem, caixa, ROI, break-even.
-- **Score do Negócio** — score 0–100 com explicação por dimensão (lucratividade, caixa, anúncios, estoque, etc.).
-- **Previsões** — receita, lucro, ruptura de estoque, caixa futuro, sazonalidade.
-- **Alertas Automáticos** — feed cronológico de alertas gerados pela IA.
+### Nova rota `/financeiro` com sub-abas
 
-### 2. Importador universal de relatórios
-- Componente de upload que aceita CSV, XLSX e PDF.
-- Detecção automática de tipo (Shopee wallet, settlement, ads, ML sales, ML ads, cancelamentos, reembolsos, tráfego, campanhas).
-- Normalização para um schema interno único antes de enviar à IA.
-- Persistência em nova tabela `strategy_imports` (arquivo + tipo detectado + JSON normalizado + created_at).
+1. **Visão Geral** — cards de faturamento bruto, receita líquida, lucro líquido, margem média, ticket médio, pedidos, ROAS médio, CMV, investimento Ads. Filtros: Diário / Semanal / Quinzenal / Mensal / Personalizado. Gráficos comparativos (período atual vs anterior).
+2. **Vendas** — lançamento manual e importação de relatórios (CSV/XLSX). Cada venda calcula automaticamente: bruto, taxas, comissão, ads, frete, desconto, imposto, receita líquida, % descontado, lucro líquido.
+3. **Produtos & Custos** — cadastro de SKU (nome, categoria, SKU, custo fabricação, embalagem, operacional, fornecedor, preço venda, margem desejada). Sistema calcula lucro bruto, margem %, lucro líquido pós-marketplace.
+4. **Taxas Shopee 2026** — tabela editável com regras atuais (faixas de preço, comissão %, tarifa fixa por item, Campanha Destaque +3,5%, Ads Fácil +1,5%). Ativar/desativar, criar novas taxas, histórico.
+5. **Frete & Incentivos** — cálculo do Programa Frete Grátis com split vendedor/plataforma por faixa de preço.
+6. **Ads** — lançamento de campanhas com investimento, venda gerada, pedidos, produto. Calcula ROAS, TACOS, CPA, lucro pós-Ads. Classifica campanha (saudável / reduzindo margem / prejuízo).
+7. **Ranking de Produtos** — mais vendidos, maior faturamento, maior lucro, menor margem, com prejuízo. Semáforo Escalar / Ajustar / Pausar.
+8. **Análise Estratégica IA** — envia dados agregados ao `strategy-advisor` e retorna recomendações executivas (crescimento, produto que carrega lucro, sugestão de preço/Ads).
+9. **Alertas** — regras locais + IA: custo Ads subiu X%, margem abaixo da meta, faturamento cresceu mas lucro caiu, produto abaixo do break-even.
+10. **Configurações** — meta faturamento mensal, meta lucro, margem mínima, ROAS mínimo, % máximo de Ads.
 
-### 3. Motor de recomendações (IA)
-- Edge Function `strategy-advisor` chama Lovable AI Gateway com modelo `google/gemini-3.6-flash` (rápido, econômico) e `google/gemini-3.1-pro-preview` para análise executiva profunda.
-- Prompt do sistema define papel de "Consultor de Negócios sênior para Shopee/ML", em PT-BR, sempre priorizando Lucro Líquido, com formato estruturado de resposta.
-- Cada recomendação retorna: `titulo`, `porque`, `impacto_financeiro_estimado`, `melhoria_estimada`, `confianca` (0–100), `risco` (baixo/médio/alto), `prioridade` (1–5), `acao_sugerida`.
-- Structured output com `Output.object` + Zod, seguindo regras (sem `.min/.max` no schema; limites no prompt e clamp no código).
+### Motor de taxas (fonte da verdade)
 
-### 4. Persistência
-Novas tabelas (com GRANTs + RLS aberto para `anon,authenticated` seguindo o padrão atual do projeto):
-- `strategy_imports` — relatórios importados normalizados.
-- `strategy_recommendations` — recomendações geradas pela IA.
-- `strategy_simulations` — histórico de simulações.
-- `strategy_alerts` — alertas automáticos.
-- `strategy_scores` — histórico do Business Score.
-
-### 5. Integração na navegação
-- Nova entrada "Central de Estratégia" na sidebar (grupo Inteligência de Mercado), com sub-itens acessíveis via abas dentro da página.
-- Card destacado no Dashboard.
-
-## Detalhes técnicos
+`src/features/finance/lib/feeEngine.ts` — implementa exatamente as regras Shopee 2026 do pedido:
 
 ```text
-src/pages/CentralEstrategia.tsx        (shell com abas)
-src/features/strategy/
-  components/
-    ExecutiveSummary.tsx
-    AdsAnalysis.tsx
-    ProfitEngine.tsx
-    ProductAnalysis.tsx
-    SimulationCenter.tsx
-    BusinessScore.tsx
-    Forecasts.tsx
-    AlertsFeed.tsx
-    ReportImporter.tsx
-    RecommendationCard.tsx
-  hooks/
-    useStrategyImports.ts
-    useRecommendations.ts
-    useSimulations.ts
-  lib/
-    normalizeReport.ts   (CSV/XLSX/PDF → schema interno)
-    strategyClient.ts    (chama edge function)
-supabase/functions/strategy-advisor/index.ts
-supabase/functions/_shared/ai-gateway.ts   (helper compartilhado)
+até R$79,99         → 20% + R$4/item
+R$80 – R$99,99      → 14% + R$16/item
+R$100 – R$199,99    → 14% + R$20/item
+acima R$200         → 14% + R$26/item
++ Campanha Destaque (+3,5%) opcional
++ Ads Fácil (+1,5%) opcional
+Frete Grátis:
+  até R$79,99   → cupom até R$20, vendedor 25%
+  R$80–R$199,99 → cupom até R$30, vendedor 25%
+  acima R$200   → cupom até R$40, vendedor 25%
 ```
 
-- CSV/XLSX via `papaparse` + `xlsx`. PDF via texto extraído (heurística; PDFs complexos ficam marcados como "revisão manual necessária" — expansão futura).
-- Recomendações listadas com badges de prioridade/risco/confiança, ordenadas por impacto em Lucro Líquido.
-- Simulações rodam localmente com fórmulas já existentes em `mem://logic/pricing-calculator` + `mem://logic/roas-metrics` + `mem://logic/monthly-projections`, e a IA só interpreta o resultado.
+Toda venda usa esse motor. Configuração fica em `finance_fee_rules` (JSON editável).
 
-## Fora desta fase (fica documentado como próximos passos)
-- Integrações diretas via API oficial Shopee/ML (autenticação OAuth).
-- Rotina diária agendada (pg_cron) para gerar o briefing matinal automaticamente — nesta fase o briefing é gerado sob demanda ao abrir a Visão Executiva, com cache de 12h.
-- Modo "IA CEO" conversacional em chat (esta fase entrega o briefing estruturado; o chat pode ser adicionado depois).
-- OCR real de PDFs de settlement complexos.
+### Persistência (novas tabelas)
 
-Confirma que posso seguir com esta Fase 1? Se preferir começar por um pedaço específico (ex.: só o importador + recomendações, ou só a Visão Executiva com IA CEO), me diz qual e eu foco só nele.
+- `finance_products` — catálogo com custo, preço, margem desejada.
+- `finance_sales` — vendas (manuais e importadas) com todos os campos brutos + líquido calculado.
+- `finance_ads_campaigns` — campanhas Ads com métricas.
+- `finance_fee_rules` — regras de taxa versionadas (uma linha ativa por vez, histórico preservado).
+- `finance_settings` — metas e limites da empresa.
+- `finance_imports` — arquivos importados normalizados (tipo, linhas, resumo).
+
+Todas com GRANTs + RLS aberto para `anon,authenticated` (padrão atual do projeto até auth existir).
+
+### Importador universal
+
+Reaproveita `normalizeReport.ts` existente e estende para reconhecer colunas de relatório de vendas Shopee/ML (data, pedido, produto, SKU, qtd, valor, desconto, comissão, taxas, frete, ads, valor recebido). Suporta CSV, XLSX (SheetJS já instalado) e PDF (best-effort). Após importar, faz conciliação: cada linha vira registro em `finance_sales` já com cálculo aplicado.
+
+### Integração IA
+
+Novo modo `financial_advisor` na edge function `strategy-advisor`: recebe agregados (faturamento, lucro, top produtos, campanhas) e devolve recomendações estruturadas (Zod `Output.object`), reaproveitando o padrão atual.
+
+### Integração na navegação
+
+- Nova entrada "Financeiro" na sidebar, no grupo Gestão.
+- Card destacado no Dashboard.
+
+## Estrutura de arquivos
+
+```text
+src/pages/CentralFinanceira.tsx
+src/features/finance/
+  components/
+    FinanceOverview.tsx
+    SalesManager.tsx        (lançamento manual + importação + lista)
+    ProductsManager.tsx
+    FeeRulesEditor.tsx
+    ShippingIncentives.tsx
+    AdsManager.tsx
+    ProductRanking.tsx
+    StrategicAnalysis.tsx
+    FinanceAlerts.tsx
+    FinanceSettings.tsx
+  hooks/
+    useFinanceSales.ts
+    useFinanceProducts.ts
+    useFinanceSettings.ts
+  lib/
+    feeEngine.ts            (Shopee 2026 fees + freight)
+    salesNormalizer.ts      (CSV/XLSX de vendas → finance_sales)
+    aggregations.ts         (KPIs por período, comparativos, ranking)
+supabase/functions/strategy-advisor/index.ts   (adiciona modo financial_advisor)
+```
+
+## Fora desta fase (documentado)
+
+- Multiempresa/multiusuário real (depende de auth — hoje o projeto é single-tenant sem login).
+- Integração direta API oficial Shopee/ML (OAuth).
+- OCR real de PDFs de settlement.
+- Impostos por regime tributário (Simples/Lucro Presumido) — nesta fase entra como `%` configurável.
+
+Posso seguir com esta Fase 1 completa? Se preferir que eu comece por um pedaço específico (ex.: só Visão Geral + Vendas + Taxas, deixando Ads/Ranking/IA depois), me diz qual e eu foco só nele.
