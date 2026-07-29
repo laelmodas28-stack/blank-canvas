@@ -13,6 +13,7 @@ import {
   Search,
   ImagePlus,
   Brain,
+  Wallet,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 
 const estrategiaItems = [
   { title: "Central de Estratégia", url: "/estrategia", icon: Brain },
+  { title: "Central Financeira", url: "/financeiro", icon: Wallet },
 ];
 
 const precificacaoItems = [
