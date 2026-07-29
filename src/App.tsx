@@ -13,6 +13,7 @@ import Historico from "./pages/Historico";
 import Configuracoes from "./pages/Configuracoes";
 import Preferencias from "./pages/Preferencias";
 import CentralEstrategia from "./pages/CentralEstrategia";
+import CentralFinanceira from "./pages/CentralFinanceira";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/estrategia" element={<CentralEstrategia />} />
+          <Route path="/financeiro" element={<CentralFinanceira />} />
           <Route path="/precificacao" element={<Precificacao />} />
           <Route path="/simulador-preco" element={<SimuladorPreco />} />
           <Route path="/radar-produtos" element={<RadarProdutos />} />

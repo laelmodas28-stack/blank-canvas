@@ -14,6 +14,289 @@ export type Database = {
   }
   public: {
     Tables: {
+      finance_ads_campaigns: {
+        Row: {
+          campaign_name: string
+          campaign_type: string | null
+          clicks: number
+          created_at: string
+          end_date: string | null
+          id: string
+          impressions: number
+          investment: number
+          orders: number
+          platform: string
+          product_id: string | null
+          product_name: string | null
+          revenue: number
+          start_date: string | null
+        }
+        Insert: {
+          campaign_name: string
+          campaign_type?: string | null
+          clicks?: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          impressions?: number
+          investment?: number
+          orders?: number
+          platform?: string
+          product_id?: string | null
+          product_name?: string | null
+          revenue?: number
+          start_date?: string | null
+        }
+        Update: {
+          campaign_name?: string
+          campaign_type?: string | null
+          clicks?: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          impressions?: number
+          investment?: number
+          orders?: number
+          platform?: string
+          product_id?: string | null
+          product_name?: string | null
+          revenue?: number
+          start_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_ads_campaigns_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "finance_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_fee_rules: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          platform: string
+          rules: Json
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          platform?: string
+          rules?: Json
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          platform?: string
+          rules?: Json
+        }
+        Relationships: []
+      }
+      finance_imports: {
+        Row: {
+          created_at: string
+          detected_type: string | null
+          file_name: string
+          file_type: string | null
+          id: string
+          row_count: number
+          summary: Json | null
+        }
+        Insert: {
+          created_at?: string
+          detected_type?: string | null
+          file_name: string
+          file_type?: string | null
+          id?: string
+          row_count?: number
+          summary?: Json | null
+        }
+        Update: {
+          created_at?: string
+          detected_type?: string | null
+          file_name?: string
+          file_type?: string | null
+          id?: string
+          row_count?: number
+          summary?: Json | null
+        }
+        Relationships: []
+      }
+      finance_products: {
+        Row: {
+          active: boolean
+          category: string | null
+          created_at: string
+          id: string
+          manufacturing_cost: number
+          name: string
+          operational_cost: number
+          packaging_cost: number
+          platform: string
+          sale_price: number
+          sku: string | null
+          supplier: string | null
+          target_margin: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          category?: string | null
+          created_at?: string
+          id?: string
+          manufacturing_cost?: number
+          name: string
+          operational_cost?: number
+          packaging_cost?: number
+          platform?: string
+          sale_price?: number
+          sku?: string | null
+          supplier?: string | null
+          target_margin?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          category?: string | null
+          created_at?: string
+          id?: string
+          manufacturing_cost?: number
+          name?: string
+          operational_cost?: number
+          packaging_cost?: number
+          platform?: string
+          sale_price?: number
+          sku?: string | null
+          supplier?: string | null
+          target_margin?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      finance_sales: {
+        Row: {
+          ads_cost: number
+          commission: number
+          created_at: string
+          discount: number
+          extra_fees: number
+          gross_price: number
+          id: string
+          import_id: string | null
+          net_profit: number
+          net_revenue: number
+          order_id: string | null
+          platform: string
+          product_cost: number
+          product_id: string | null
+          product_name: string
+          quantity: number
+          raw: Json | null
+          sale_date: string
+          shipping_cost: number
+          sku: string | null
+          source: string
+          tax: number
+        }
+        Insert: {
+          ads_cost?: number
+          commission?: number
+          created_at?: string
+          discount?: number
+          extra_fees?: number
+          gross_price?: number
+          id?: string
+          import_id?: string | null
+          net_profit?: number
+          net_revenue?: number
+          order_id?: string | null
+          platform?: string
+          product_cost?: number
+          product_id?: string | null
+          product_name: string
+          quantity?: number
+          raw?: Json | null
+          sale_date?: string
+          shipping_cost?: number
+          sku?: string | null
+          source?: string
+          tax?: number
+        }
+        Update: {
+          ads_cost?: number
+          commission?: number
+          created_at?: string
+          discount?: number
+          extra_fees?: number
+          gross_price?: number
+          id?: string
+          import_id?: string | null
+          net_profit?: number
+          net_revenue?: number
+          order_id?: string | null
+          platform?: string
+          product_cost?: number
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+          raw?: Json | null
+          sale_date?: string
+          shipping_cost?: number
+          sku?: string | null
+          source?: string
+          tax?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_sales_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "finance_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_settings: {
+        Row: {
+          default_tax_percent: number
+          id: string
+          max_ads_percent: number
+          min_margin: number
+          min_roas: number
+          monthly_profit_goal: number
+          monthly_revenue_goal: number
+          updated_at: string
+        }
+        Insert: {
+          default_tax_percent?: number
+          id?: string
+          max_ads_percent?: number
+          min_margin?: number
+          min_roas?: number
+          monthly_profit_goal?: number
+          monthly_revenue_goal?: number
+          updated_at?: string
+        }
+        Update: {
+          default_tax_percent?: number
+          id?: string
+          max_ads_percent?: number
+          min_margin?: number
+          min_roas?: number
+          monthly_profit_goal?: number
+          monthly_revenue_goal?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       produtos_analisados: {
         Row: {
           avaliacao_media: number | null
