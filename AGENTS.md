@@ -1,0 +1,3 @@
+# Architecture rules
+- Marketplace pricing uses a single versioned configuration and pure tier-aware engine, shared by calculator, ideal-price simulator and finance defaults, to prevent conflicting fee formulas.
+- Until shared persistence is available, marketplace rate settings and pricing snapshots are explicitly device-local and retain versioned configuration with each snapshot; never imply cross-device synchronization.
