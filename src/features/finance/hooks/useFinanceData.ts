@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { usePricingStore } from "@/features/pricing/hooks/usePricingStore";
+import { financeRulesFromRates, type FeeRules } from "../lib/feeEngine";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Sale = Tables<"finance_sales">;
@@ -54,18 +56,21 @@ export function useFinanceAds() {
 }
 
 export function useFinanceFeeRule() {
+  const { rates } = usePricingStore();
   const [rule, setRule] = useState<FeeRule | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from("finance_fee_rules").select("*").eq("active", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data } = await supabase.from("finance_fee_rules").select("*").eq("platform", "shopee").eq("active", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
     setRule(data ?? null);
     setLoading(false);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
-  return { rule, loading, refresh };
+  const centralizedRules = financeRulesFromRates(rates, rule?.rules as unknown as FeeRules | undefined);
+  const resolvedRule = { ...(rule ?? { id: "device-local", platform: "shopee", name: "Taxas 2026", active: true, created_at: rates.updatedAt }), rules: JSON.parse(JSON.stringify(centralizedRules)) } as FeeRule;
+  return { rule: resolvedRule, loading, refresh };
 }
 
 export function useFinanceSettings() {

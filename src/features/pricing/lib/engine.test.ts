@@ -1,0 +1,32 @@
+import { describe, it, expect } from "vitest";
+import { calculatePrice, solvePrice, nextTierScenario, thresholdAlerts, EMPTY_INPUT } from "./engine";
+import { cloneDefaults, PLATFORMS } from "./config";
+const input = { ...EMPTY_INPUT, cost: 10, tax: 7 };
+describe("Marketplace rules specified for October 2026", () => {
+  it("Shopee CNPJ: 29.90 - 10 - 5.98 - 4.50 - 2.09 = 7.33", () => {
+    const result = calculatePrice("shopee", 29.9, input);
+    expect(result.commission).toBe(5.98); expect(result.fixed).toBe(4.5); expect(result.taxAmount).toBe(2.09); expect(result.profit).toBe(7.33);
+  });
+  it.each([[79.99,20,4.5],[80,14,16],[99.99,14,16],[100,14,20],[199.99,14,20],[200,14,26]])("Shopee tier %s applies %s%% plus %s", (p,r,f) => { const v = calculatePrice("shopee",p,input); expect(v.percent).toBe(r); expect(v.fixed).toBe(f); });
+  it("Shopee prices below 9 use half the price as fixed fee", () => { expect(calculatePrice("shopee",8,input).fixed).toBe(4); expect(calculatePrice("shopee",9,input).fixed).toBe(4.5); });
+  it("Shopee has no commission cap", () => expect(calculatePrice("shopee",1000,input).commission).toBe(140));
+  it("CPF adds 3 only with more than 450 orders", () => { expect(calculatePrice("shopee",29.9,{...input,document:"cpf"}).fixed).toBe(4.5); expect(calculatePrice("shopee",29.9,{...input,document:"cpf",highOrders:true}).fixed).toBe(7.5); expect(calculatePrice("shopee",29.9,{...input,document:"cnpj",highOrders:true}).fixed).toBe(4.5); });
+  it("Shopee campaign adds 2.5 points and advance defaults to zero", () => { expect(calculatePrice("shopee",29.9,{...input,campaign:true}).percent).toBe(22.5); expect(calculatePrice("shopee",29.9,{...input,advanceReduction:2}).percent).toBe(18); });
+  it("Uses price after seller discount to select the tier", () => { const v = calculatePrice("shopee",85,{...input,discount:10}); expect(v.percent).toBe(20); expect(v.fixed).toBe(4.5); expect(v.commission).toBe(15); });
+  it.each([[49.99,10,4],[50,6,6]])("TikTok tier %s", (p,r,f) => { const v=calculatePrice("tiktok",p,input); expect(v.percent).toBe(r); expect(v.fixed).toBe(f); });
+  it("TikTok shipping is 6 percent capped at 50", () => { expect(calculatePrice("tiktok",100,{...input,shippingProgram:true}).extra).toBe(6); expect(calculatePrice("tiktok",1000,{...input,shippingProgram:true}).extra).toBe(50); });
+  it("TikTok exemption excludes only commission, not fixed or affiliate fees", () => { const v=calculatePrice("tiktok",100,{...input,newSeller:true,affiliate:5}); expect(v.percent).toBe(5); expect(v.fixed).toBe(6); });
+  it("ML reference rates are Classic14 and Premium19 with blank categories", () => { expect(calculatePrice("mercadolivre",100,{...input,category:"vestidos"}).percent).toBe(14); expect(calculatePrice("mercadolivre",100,{...input,category:"bodies",adType:"premium"}).percent).toBe(19); });
+  it("ML reduced commission applies to inclusive 150–700 only", () => { const r=cloneDefaults();r.mercadolivre.reduced=12; const i={...input,reducedCategory:true}; expect(calculatePrice("mercadolivre",149.99,i,r).percent).toBe(14);expect(calculatePrice("mercadolivre",150,i,r).percent).toBe(12);expect(calculatePrice("mercadolivre",700,i,r).percent).toBe(12);expect(calculatePrice("mercadolivre",700.01,i,r).percent).toBe(14); });
+  it("ML variable fee starts at19 and total kit weight chooses fee", () => { const r=cloneDefaults();r.mercadolivre.weightFees=[{maxWeight:1,minPrice:19,maxPrice:100,amount:6},{maxWeight:3,minPrice:19,maxPrice:100,amount:9}]; expect(calculatePrice("mercadolivre",18.99,{...input,weight:2},r).variable).toBe(0);expect(calculatePrice("mercadolivre",60,{...input,weight:2},r).variable).toBe(9);expect(calculatePrice("mercadolivre",60,{...input,weight:2,variableFee:8},r).variable).toBe(8); });
+  it("ML advance fee is off by default", () => { const r=cloneDefaults();r.mercadolivre.advance=2;expect(calculatePrice("mercadolivre",100,input,r).percent).toBe(14);expect(calculatePrice("mercadolivre",100,{...input,advanceEnabled:true},r).percent).toBe(16); });
+  it("Magalu uses16%+5 or new-seller9.9%+5", () => { expect(calculatePrice("magalu",100,input).commission).toBe(16);expect(calculatePrice("magalu",100,input).fixed).toBe(5);expect(calculatePrice("magalu",100,{...input,newSeller:true}).commission).toBe(9.9); });
+  it("Wholesale has no platform fee or seller freight", () => { const v=calculatePrice("wholesale",100,{...input,freight:10});expect(v.commission).toBe(0);expect(v.fixed).toBe(0);expect(v.freight).toBe(0); });
+  it("Subtracts freight packaging ads and tax from net profit", () => { const v=calculatePrice("shopee",29.9,{...input,packaging:1,freight:2,ads:1,adsMode:"fixed"});expect(v.profit).toBe(3.33); });
+  it.each(PLATFORMS)("%s target price and break-even use their resulting tier", platform => { const s=solvePrice(platform,input,30);expect(s).not.toBeNull(); if(!s)return;expect(calculatePrice(platform,s.price,input).margin).toBeGreaterThanOrEqual(30);const b=solvePrice(platform,input,0);expect(b).not.toBeNull();if(b)expect(calculatePrice(platform,b.price,input).profit).toBeGreaterThanOrEqual(0); });
+  it("Target solver selects a valid lower candidate rather than iterating into an invalid tier", () => { const s=solvePrice("shopee",{...input,cost:30},30);expect(s?.price).toBe(93.88); });
+  it("Warns about fee change and actual profit lost at80", () => { const a=thresholdAlerts("shopee",79,input,cloneDefaults())[0];expect(a.threshold).toBe(80);expect(a.beforeFee).toBe(4.5);expect(a.afterFee).toBe(16);expect(a.profitLoss).toBe(6.69); });
+  it("Next tier scenario preserves current monetary profit", () => { const s=nextTierScenario("shopee",79,input,cloneDefaults());expect(s).not.toBeNull();if(s){expect(s.price).toBeGreaterThanOrEqual(80);expect(calculatePrice("shopee",s.price,input).profit).toBeGreaterThanOrEqual(calculatePrice("shopee",79,input).profit);} });
+  it("Impossible margin does not return a misleading sale price", () => expect(solvePrice("shopee",input,95)).toBeNull());
+  it("Ads recommendation defaults to40%", () => expect(cloneDefaults().recommendedAdsPercent).toBe(40));
+});

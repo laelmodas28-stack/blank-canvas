@@ -4,6 +4,7 @@ export default {
   darkMode: ["class"],
   content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
   prefix: "",
+  safelist: ["platform-shopee", "platform-mercadolivre", "platform-tiktok", "platform-magalu", "platform-wholesale", "cost-product", "cost-fees", "cost-freight", "cost-ads", "cost-tax", "cost-packaging", "cost-profit"],
   theme: {
     container: {
       center: true,
@@ -14,6 +15,8 @@ export default {
     },
     extend: {
       colors: {
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

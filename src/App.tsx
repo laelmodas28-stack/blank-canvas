@@ -14,6 +14,7 @@ import Configuracoes from "./pages/Configuracoes";
 import Preferencias from "./pages/Preferencias";
 import CentralEstrategia from "./pages/CentralEstrategia";
 import CentralFinanceira from "./pages/CentralFinanceira";
+import Taxas from "./pages/Taxas";
 
 function App() {
   return (
@@ -34,6 +35,7 @@ function App() {
           <Route path="/criar-anuncio" element={<CriarAnuncio />} />
           <Route path="/historico" element={<Historico />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
+          <Route path="/taxas" element={<Taxas />} />
           <Route path="/preferencias" element={<Preferencias />} />
         </Route>
       </Routes>

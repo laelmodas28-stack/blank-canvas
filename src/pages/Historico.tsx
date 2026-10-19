@@ -1,69 +1,11 @@
-import { History, ExternalLink } from "lucide-react";
-
-const mockHistory = [
-  { product: "Fone Bluetooth TWS", platform: "Shopee", score: 72, date: "2026-03-10" },
-  { product: "Capinha iPhone 15", platform: "Mercado Livre", score: 58, date: "2026-03-09" },
-  { product: "Luminária LED USB", platform: "Shopee", score: 85, date: "2026-03-08" },
-  { product: "Organizador de Mesa", platform: "Mercado Livre", score: 44, date: "2026-03-07" },
-  { product: "Câmera Wi-Fi", platform: "Shopee", score: 67, date: "2026-03-06" },
-];
-
-function getScoreColor(score: number) {
-  if (score <= 40) return "text-destructive";
-  if (score <= 60) return "text-amber-500";
-  if (score <= 80) return "text-emerald-500";
-  return "text-primary";
-}
-
+import { Link } from "react-router-dom";
+import { History, ExternalLink, Trash2 } from "lucide-react";
+import { usePricingStore, deletePrice } from "@/features/pricing/hooks/usePricingStore";
+import { PLATFORM_NAMES } from "@/features/pricing/lib/config";
+import { brl, percent } from "@/features/pricing/components/PriceBreakdown";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 export default function Historico() {
-  return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-          <History className="h-5 w-5 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Análises Salvas</h1>
-          <p className="text-sm text-muted-foreground">Acesse seus cálculos e análises anteriores</p>
-        </div>
-      </div>
-
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Produto</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Plataforma</th>
-                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Score</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
-                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mockHistory.map((item, i) => (
-                <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 text-foreground font-medium">{item.product}</td>
-                  <td className="px-4 py-3 text-foreground">{item.platform}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`font-bold ${getScoreColor(item.score)}`}>{item.score}</span>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{item.date}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button className="text-primary hover:text-primary/80 transition-colors">
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <p className="text-xs text-muted-foreground mt-4 text-center">
-        Dados de exemplo. As análises serão salvas automaticamente conforme você utilizar a plataforma.
-      </p>
-    </div>
-  );
+  const { saved } = usePricingStore();
+  return <div className="max-w-6xl mx-auto"><header className="flex items-center gap-3 mb-6"><History className="h-6 w-6 text-primary" /><div><h1 className="text-2xl font-bold">Análises Salvas</h1><p className="text-sm text-muted-foreground mt-1">Preços por produto e plataforma · salvos neste dispositivo</p></div></header>{saved.length === 0 ? <div className="border-t border-border py-12 text-center"><p className="text-muted-foreground mb-4">Nenhum preço salvo.</p><Button asChild><Link to="/precificacao">Calculadora de Lucro</Link></Button></div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted-foreground">{["Produto / SKU", "Plataforma", "Preço", "Lucro", "Margem", "Versão das taxas", "Data", "Ações"].map(label => <th key={label} className="text-left p-3 font-medium whitespace-nowrap">{label}</th>)}</tr></thead><tbody>{saved.map(item => <tr key={item.id} className="border-b border-border"><td className="p-3 font-medium">{item.product}</td><td className="p-3 whitespace-nowrap">{PLATFORM_NAMES[item.platform]}</td><td className="p-3 whitespace-nowrap">{brl(item.price)}</td><td className="p-3 whitespace-nowrap">{brl(item.result.profit)}</td><td className="p-3">{percent(item.result.margin)}</td><td className="p-3 text-xs">{item.rates.version}</td><td className="p-3 whitespace-nowrap">{new Date(item.createdAt).toLocaleDateString("pt-BR")}</td><td className="p-3"><div className="flex gap-1"><Button asChild variant="ghost" aria-label={`Abrir ${item.product}`} title="Abrir na calculadora"><Link to="/precificacao" state={{ savedPrice: item }}><ExternalLink className="h-4 w-4" /></Link></Button><Button variant="ghost" title="Excluir preço salvo" aria-label={`Excluir ${item.product}`} onClick={() => { try { deletePrice(item.id); } catch { toast.error("Não foi possível excluir."); } }}><Trash2 className="h-4 w-4" /></Button></div></td></tr>)}</tbody></table></div>}</div>;
 }

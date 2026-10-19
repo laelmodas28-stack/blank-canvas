@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
+    --background: 0 0% 100%;
     --foreground: 220 20% 14%;
     --card: 0 0% 100%;
     --card-foreground: 220 20% 14%;
@@ -24,6 +24,28 @@
     --input: 220 13% 91%;
     --ring: 220 72% 50%;
     --radius: 0.5rem;
+    --success: 142 65% 32%;
+    --warning: 35 85% 34%;
+    --brand-shopee: 10 85% 55%;
+    --brand-shopee-foreground: 0 0% 100%;
+    --brand-mercadolivre: 54 100% 50%;
+    --brand-mercadolivre-foreground: 236 45% 32%;
+    --brand-tiktok: 0 0% 0%;
+    --brand-tiktok-foreground: 0 0% 100%;
+    --brand-tiktok-cyan: 178 90% 55%;
+    --brand-tiktok-pink: 348 99% 58%;
+    --brand-magalu: 208 100% 50%;
+    --brand-magalu-foreground: 0 0% 100%;
+    --brand-wholesale: 123 46% 34%;
+    --brand-wholesale-foreground: 0 0% 100%;
+    --cost-product: 220 18% 44%;
+    --cost-fees: 24 79% 52%;
+    --cost-freight: 46 90% 56%;
+    --cost-ads: 211 80% 52%;
+    --cost-tax: 272 42% 57%;
+    --cost-packaging: 220 9% 76%;
+    --cost-profit: 142 46% 45%;
+    --shadow-pricing: 0 2px 8px hsl(220 20% 14% / 0.06);
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 220 20% 14%;
     --sidebar-primary: 220 72% 50%;
@@ -67,3 +89,27 @@
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 }
+
+@layer components {
+  .platform-shopee { --platform: var(--brand-shopee); --platform-foreground: var(--brand-shopee-foreground); }
+  .platform-mercadolivre { --platform: var(--brand-mercadolivre); --platform-foreground: var(--brand-mercadolivre-foreground); }
+  .platform-tiktok { --platform: var(--brand-tiktok); --platform-foreground: var(--brand-tiktok-foreground); }
+  .platform-magalu { --platform: var(--brand-magalu); --platform-foreground: var(--brand-magalu-foreground); }
+  .platform-wholesale { --platform: var(--brand-wholesale); --platform-foreground: var(--brand-wholesale-foreground); }
+  .platform-header, .platform-selected { background-color: hsl(var(--platform)); color: hsl(var(--platform-foreground)); }
+  .platform-selected:hover { background-color: hsl(var(--platform) / .9); color: hsl(var(--platform-foreground)); }
+  .platform-tiktok .platform-header { border-bottom: 2px solid hsl(var(--brand-tiktok-cyan)); }
+  .platform-tiktok .platform-selected { border-bottom: 2px solid hsl(var(--brand-tiktok-pink)); }
+  article[class*="platform-"] { box-shadow: var(--shadow-pricing); }
+  .cost-product { background: hsl(var(--cost-product)); }
+  .cost-fees { background: hsl(var(--cost-fees)); }
+  .cost-freight { background: hsl(var(--cost-freight)); }
+  .cost-ads { background: hsl(var(--cost-ads)); }
+  .cost-tax { background: hsl(var(--cost-tax)); }
+  .cost-packaging { background: hsl(var(--cost-packaging)); }
+  .cost-profit { background: hsl(var(--cost-profit)); }
+}
+
+/* Platform controls override the base button variant so foreground and surface stay paired. */
+.platform-header, .platform-selected { background-color: hsl(var(--platform)); color: hsl(var(--platform-foreground)); }
+.platform-selected:hover { background-color: hsl(var(--platform) / .9); color: hsl(var(--platform-foreground)); }

@@ -1,3 +1,5 @@
+import { DEFAULT_RATES, type RateConfig } from "@/features/pricing/lib/config";
+
 // Shopee 2026 fee engine — calculates commissions, extras, freight split and net revenue.
 
 export interface FeeTier {
@@ -19,17 +21,16 @@ export interface FeeRules {
     adsFacil: { percent: number; enabled: boolean };
   };
   freight: FreightTier[];
+  lowPriceThreshold?: number;
+  lowPriceFixedPercent?: number;
 }
 
 export const DEFAULT_SHOPEE_2026_RULES: FeeRules = {
   tiers: [
-    { maxPrice: 79.99, commissionPercent: 20, fixedFee: 4 },
-    { maxPrice: 99.99, commissionPercent: 14, fixedFee: 16 },
-    { maxPrice: 199.99, commissionPercent: 14, fixedFee: 20 },
-    { maxPrice: null, commissionPercent: 14, fixedFee: 26 },
+    ...DEFAULT_RATES.shopee.tiers.map(t => ({ maxPrice: t.max, commissionPercent: t.commission, fixedFee: t.fixed })),
   ],
   extras: {
-    campanhaDestaque: { percent: 3.5, enabled: false },
+    campanhaDestaque: { percent: DEFAULT_RATES.shopee.campaign, enabled: false },
     adsFacil: { percent: 1.5, enabled: false },
   },
   freight: [
@@ -79,13 +80,14 @@ export function calculateFees(input: FeeInput): FeeBreakdown {
   const discount = input.discount ?? 0;
   const priceAfterDiscount = gross - discount;
 
-  const tier = pickTier(input.grossPrice, rules.tiers);
+  const effectiveUnitPrice = Math.max(0, priceAfterDiscount / qty);
+  const tier = pickTier(effectiveUnitPrice, rules.tiers);
   let commissionRate = tier.commissionPercent / 100;
   if (rules.extras.campanhaDestaque.enabled) commissionRate += rules.extras.campanhaDestaque.percent / 100;
   if (rules.extras.adsFacil.enabled) commissionRate += rules.extras.adsFacil.percent / 100;
 
   const commission = priceAfterDiscount * commissionRate;
-  const fixedFees = tier.fixedFee * qty;
+  const fixedFees = (effectiveUnitPrice < (rules.lowPriceThreshold ?? DEFAULT_RATES.shopee.lowPriceThreshold) ? effectiveUnitPrice * (rules.lowPriceFixedPercent ?? DEFAULT_RATES.shopee.lowPriceFixedPercent) / 100 : tier.fixedFee) * qty;
 
   const freightTier = pickTier(input.grossPrice, rules.freight);
   const freightSellerCost =
@@ -127,5 +129,17 @@ export function calculateFreightSplit(grossPrice: number, coupon: number, rules:
     platformPays: round2(effective * (1 - tier.sellerShare)),
     sellerPercent: tier.sellerShare * 100,
     tier,
+  };
+}
+
+// Adapt the central pricing rates while retaining finance-only freight incentives and options.
+export function financeRulesFromRates(rates: RateConfig, previous?: FeeRules): FeeRules {
+  return {
+    ...DEFAULT_SHOPEE_2026_RULES,
+    ...previous,
+    tiers: rates.shopee.tiers.map(t => ({ maxPrice: t.max, commissionPercent: Math.max(0, t.commission - rates.shopee.advanceReduction), fixedFee: t.fixed })),
+    extras: { campanhaDestaque: { percent: rates.shopee.campaign, enabled: previous?.extras?.campanhaDestaque?.enabled ?? false }, adsFacil: previous?.extras?.adsFacil ?? DEFAULT_SHOPEE_2026_RULES.extras.adsFacil },
+    lowPriceThreshold: rates.shopee.lowPriceThreshold,
+    lowPriceFixedPercent: rates.shopee.lowPriceFixedPercent,
   };
 }
