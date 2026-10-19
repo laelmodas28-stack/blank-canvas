@@ -109,3 +109,7 @@
   .cost-packaging { background: hsl(var(--cost-packaging)); }
   .cost-profit { background: hsl(var(--cost-profit)); }
 }
+
+/* Platform controls override the base button variant so foreground and surface stay paired. */
+.platform-header, .platform-selected { background-color: hsl(var(--platform)); color: hsl(var(--platform-foreground)); }
+.platform-selected:hover { background-color: hsl(var(--platform) / .9); color: hsl(var(--platform-foreground)); }
