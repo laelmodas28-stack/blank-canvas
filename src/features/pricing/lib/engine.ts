@@ -89,6 +89,8 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
     }
     if (!Number.isFinite(candidate) || candidate > high) continue;
     // Reconcile cents against the same rounded ledger used by all rendered results.
+    const meets = (p: number) => calculatePrice(platform, p, normalized, rates).profit + 0.000001 >= p * margin / 100 + targetProfit;
+    for (let j = 0; j < 10 && roundMoney(candidate - 0.01) >= low && meets(roundMoney(candidate - 0.01)); j++) candidate = roundMoney(candidate - 0.01);
     for (let j = 0; j < 10 && candidate <= high; j++, candidate = roundMoney(candidate + 0.01)) {
       const result = calculatePrice(platform, candidate, normalized, rates);
       if (result.profit + 0.000001 >= candidate * margin / 100 + targetProfit) return { price: candidate, atStep };
