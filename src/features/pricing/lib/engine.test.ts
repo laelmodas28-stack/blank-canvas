@@ -30,3 +30,11 @@ describe("Marketplace rules specified for October 2026", () => {
   it("Impossible margin does not return a misleading sale price", () => expect(solvePrice("shopee",input,95)).toBeNull());
   it("Ads recommendation defaults to40%", () => expect(cloneDefaults().recommendedAdsPercent).toBe(40));
 });
+describe("final check: cost 10, tax 7%, price 29.90", () => {
+  const i = { cost: 10, tax: 7, packaging: 0, freight: 0, ads: 0, adsMode: "percent" as const, document: "cnpj" as const };
+  it("Shopee CNPJ", () => { const r = calculatePrice("shopee", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([5.98, 4.5, 2.09, 7.33]); });
+  it("TikTok Shop", () => { const r = calculatePrice("tiktok", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([2.99, 4, 2.09, 10.82]); });
+  it("Magalu", () => { const r = calculatePrice("magalu", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([4.78, 5, 2.09, 8.03]); });
+  it("Atacado", () => { const r = calculatePrice("wholesale", 29.9, i); expect([r.commission, r.taxAmount, r.profit]).toEqual([0, 2.09, 17.81]); });
+  it("break-even yields exactly zero profit", () => { const s = solvePrice("shopee", i, 0)!; expect(calculatePrice("shopee", s.price, i).profit).toBe(0); });
+});
