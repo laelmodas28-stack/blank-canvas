@@ -40,7 +40,7 @@ export function calculatePrice(platform: Platform, salePrice: number, input: Pri
   const commission = roundMoney(price * fees.percent / 100);
   const taxAmount = roundMoney(price * input.tax / 100);
   const adsAmount = roundMoney(input.adsMode === "percent" ? price * input.ads / 100 : input.ads);
-  const freight = platform === "wholesale" ? 0 : input.freight ?? rates[platform].freight;
+  const freight = input.freight ?? rates[platform].freight;
   const totalCosts = roundMoney(input.cost + input.packaging + commission + fees.fixed + fees.variable + fees.extra + taxAmount + adsAmount + freight);
   const profit = roundMoney(price - totalCosts);
   return { price, commission, taxAmount, adsAmount, freight, totalCosts, profit, margin: price > 0 ? profit / price * 100 : 0, roi: input.cost > 0 ? profit / input.cost * 100 : 0, ...fees };
@@ -68,7 +68,7 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
   const boundaries = priceBoundaries(platform, normalized, rates);
   const rawProfit = (p: number) => {
     const f = platformFees(platform, p, normalized, rates);
-    const freight = platform === "wholesale" ? 0 : input.freight ?? rates[platform].freight;
+    const freight = input.freight ?? rates[platform].freight;
     return p * (1 - f.percent / 100 - input.tax / 100 - (input.adsMode === "percent" ? input.ads / 100 : 0) - margin / 100) - input.cost - input.packaging - f.fixed - f.variable - f.extra - freight - (input.adsMode === "fixed" ? input.ads : 0) - targetProfit;
   };
   for (let i = 0; i < boundaries.length; i++) {
