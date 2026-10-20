@@ -21,7 +21,7 @@ describe("Marketplace rules specified for October 2026", () => {
   it("ML variable fee starts at19 and total kit weight chooses fee", () => { const r=cloneDefaults();r.mercadolivre.weightFees=[{maxWeight:1,minPrice:19,maxPrice:100,amount:6},{maxWeight:3,minPrice:19,maxPrice:100,amount:9}]; expect(calculatePrice("mercadolivre",18.99,{...input,weight:2},r).variable).toBe(0);expect(calculatePrice("mercadolivre",60,{...input,weight:2},r).variable).toBe(9);expect(calculatePrice("mercadolivre",60,{...input,weight:2,variableFee:8},r).variable).toBe(8); });
   it("ML advance fee is off by default", () => { const r=cloneDefaults();r.mercadolivre.advance=2;expect(calculatePrice("mercadolivre",100,input,r).percent).toBe(14);expect(calculatePrice("mercadolivre",100,{...input,advanceEnabled:true},r).percent).toBe(16); });
   it("Magalu uses16%+5 or new-seller9.9%+5", () => { expect(calculatePrice("magalu",100,input).commission).toBe(16);expect(calculatePrice("magalu",100,input).fixed).toBe(5);expect(calculatePrice("magalu",100,{...input,newSeller:true}).commission).toBe(9.9); });
-  it("Wholesale has no platform fee or seller freight", () => { const v=calculatePrice("wholesale",100,{...input,freight:10});expect(v.commission).toBe(0);expect(v.fixed).toBe(0);expect(v.freight).toBe(0); });
+  it("Wholesale has no platform fee and uses informed freight", () => { const v=calculatePrice("wholesale",100,{...input,freight:10});expect(v.commission).toBe(0);expect(v.fixed).toBe(0);expect(v.freight).toBe(10); });
   it("Subtracts freight packaging ads and tax from net profit", () => { const v=calculatePrice("shopee",29.9,{...input,packaging:1,freight:2,ads:1,adsMode:"fixed"});expect(v.profit).toBe(3.33); });
   it.each(PLATFORMS)("%s target price and break-even use their resulting tier", platform => { const s=solvePrice(platform,input,30);expect(s).not.toBeNull(); if(!s)return;expect(calculatePrice(platform,s.price,input).margin).toBeGreaterThanOrEqual(30);const b=solvePrice(platform,input,0);expect(b).not.toBeNull();if(b)expect(calculatePrice(platform,b.price,input).profit).toBeGreaterThanOrEqual(0); });
   it("Target solver selects a valid lower candidate rather than iterating into an invalid tier", () => { const s=solvePrice("shopee",{...input,cost:30},30);expect(s?.price).toBe(93.88); });
@@ -29,4 +29,12 @@ describe("Marketplace rules specified for October 2026", () => {
   it("Next tier scenario preserves current monetary profit", () => { const s=nextTierScenario("shopee",79,input,cloneDefaults());expect(s).not.toBeNull();if(s){expect(s.price).toBeGreaterThanOrEqual(80);expect(calculatePrice("shopee",s.price,input).profit).toBeGreaterThanOrEqual(calculatePrice("shopee",79,input).profit);} });
   it("Impossible margin does not return a misleading sale price", () => expect(solvePrice("shopee",input,95)).toBeNull());
   it("Ads recommendation defaults to40%", () => expect(cloneDefaults().recommendedAdsPercent).toBe(40));
+});
+describe("final check: cost 10, tax 7%, price 29.90", () => {
+  const i = { cost: 10, tax: 7, packaging: 0, freight: 0, ads: 0, adsMode: "percent" as const, document: "cnpj" as const };
+  it("Shopee CNPJ", () => { const r = calculatePrice("shopee", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([5.98, 4.5, 2.09, 7.33]); });
+  it("TikTok Shop", () => { const r = calculatePrice("tiktok", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([2.99, 4, 2.09, 10.82]); });
+  it("Magalu", () => { const r = calculatePrice("magalu", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([4.78, 5, 2.09, 8.03]); });
+  it("Atacado", () => { const r = calculatePrice("wholesale", 29.9, i); expect([r.commission, r.taxAmount, r.profit]).toEqual([0, 2.09, 17.81]); });
+  it("break-even is the lowest cent without loss", () => { const s = solvePrice("shopee", i, 0)!; const p = calculatePrice("shopee", s.price, i).profit; expect(p).toBeGreaterThanOrEqual(0); expect(p).toBeLessThanOrEqual(0.01); expect(calculatePrice("shopee", s.price - 0.01, i).profit).toBeLessThan(0); });
 });
