@@ -36,5 +36,5 @@ describe("final check: cost 10, tax 7%, price 29.90", () => {
   it("TikTok Shop", () => { const r = calculatePrice("tiktok", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([2.99, 4, 2.09, 10.82]); });
   it("Magalu", () => { const r = calculatePrice("magalu", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([4.78, 5, 2.09, 8.03]); });
   it("Atacado", () => { const r = calculatePrice("wholesale", 29.9, i); expect([r.commission, r.taxAmount, r.profit]).toEqual([0, 2.09, 17.81]); });
-  it("break-even yields exactly zero profit", () => { const s = solvePrice("shopee", i, 0)!; expect(calculatePrice("shopee", s.price, i).profit).toBe(0); });
+  it("break-even is the lowest cent without loss", () => { const s = solvePrice("shopee", i, 0)!; const p = calculatePrice("shopee", s.price, i).profit; expect(p).toBeGreaterThanOrEqual(0); expect(p).toBeLessThanOrEqual(0.01); expect(calculatePrice("shopee", s.price - 0.01, i).profit).toBeLessThan(0); });
 });
