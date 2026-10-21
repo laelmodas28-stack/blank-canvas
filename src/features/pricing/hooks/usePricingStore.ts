@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from "react";
-import { cloneDefaults, type Platform, type RateConfig } from "../lib/config";
+import { cloneDefaults, upgradeRates, type Platform, type RateConfig } from "../lib/config";
 import { type PricingInput, type PriceResult } from "../lib/engine";
 export interface SavedPrice { id: string; product: string; platform: Platform; price: number; input: PricingInput; result: PriceResult; rates: RateConfig; createdAt: string; }
 interface Store { rates: RateConfig; saved: SavedPrice[]; }
 const KEY = "sellsmart-pricing-v2026";
 function load(): Store {
-  try { const data = JSON.parse(localStorage.getItem(KEY) ?? "null"); if (data?.rates?.shopee?.tiers && Array.isArray(data.saved)) return data; } catch { /* Retain functional defaults if storage is unavailable. */ }
+  try { const data = JSON.parse(localStorage.getItem(KEY) ?? "null"); if (data?.rates?.shopee?.tiers && Array.isArray(data.saved)) return { ...data, rates: upgradeRates(data.rates) }; } catch { /* Retain functional defaults if storage is unavailable. */ }
   return { rates: cloneDefaults(), saved: [] };
 }
 let state = load();
