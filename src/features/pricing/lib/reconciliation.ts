@@ -25,6 +25,7 @@ export function adjustedRates(platform: Platform, values: ReferenceValues, input
   tier.fixed = values.fixed - (platform === "shopee" && input.document === "cpf" && input.highOrders ? next.shopee.cpfExtra : 0);
   if (tier.fixed < 0) throw new Error("Tarifa fixa inválida.");
   tier.shipping = values.shipping / (platform === "magalu" ? 1 - (input.shippingDiscount ?? 0)/100 : 1);
+  tier.calibrated = true;
   if (!Number.isFinite(tier.shipping)) throw new Error("Revise o desconto de frete.");
   // Extras and per-order bonuses are never inferred into global rates from a single sale.
   if (Math.abs(values.other - result.extra) > 0.01) throw new Error("Outras taxas divergem; revise campanha, afiliado e programa de envio em Taxas.");

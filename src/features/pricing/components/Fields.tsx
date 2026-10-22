@@ -23,8 +23,8 @@ export function NumberField({ label, value, onChange, hint, placeholder, min = 0
     if (parseDecimal(text) !== parseDecimal(value as string)) setText(value === undefined || value === "" ? "" : String(value).replace(".", ","));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
-  const emit = (t: string) => { setText(t); const n = parseDecimal(t); onChange(t.replace(",", ".")); };
-  return <div className="min-w-0"><label htmlFor={id} className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label><input id={id} type="text" inputMode="decimal" autoComplete="off" placeholder={placeholder} aria-valuemin={min} aria-valuemax={max} value={text} onFocus={e => e.currentTarget.select()} onChange={e => emit(sanitize(e.target.value))}  className={inputClass} />{hint && <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{hint}</p>}</div>;
+  const emit = (t: string) => { setText(t); onChange(t.replace(",", ".")); };
+  return <div className="min-w-0"><label htmlFor={id} className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label><input id={id} type="text" inputMode="decimal" autoComplete="off" placeholder={placeholder} aria-valuemin={min} aria-valuemax={max} value={text} onFocus={e => e.currentTarget.select()} onChange={e => emit(sanitize(e.target.value))} onBlur={() => { const n = parseDecimal(text); if (n !== undefined) emit(n.toFixed(2).replace(".", ",")); }} className={inputClass} />{hint && <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{hint}</p>}</div>;
 }
 export function CheckField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return <label className="flex items-center gap-3 py-2 text-sm cursor-pointer"><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="h-4 w-4 accent-primary shrink-0" /><span>{label}</span></label>;
