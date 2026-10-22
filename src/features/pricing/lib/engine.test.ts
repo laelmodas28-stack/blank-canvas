@@ -21,10 +21,10 @@ describe("Marketplace rules specified for October 2026", () => {
   it("ML variable fee starts at19 and total kit weight chooses fee", () => { const r=cloneDefaults();r.mercadolivre.weightFees=[{maxWeight:1,minPrice:19,maxPrice:100,amount:6},{maxWeight:3,minPrice:19,maxPrice:100,amount:9}]; expect(calculatePrice("mercadolivre",18.99,{...input,weight:2},r).variable).toBe(0);expect(calculatePrice("mercadolivre",60,{...input,weight:2},r).variable).toBe(9);expect(calculatePrice("mercadolivre",60,{...input,weight:2,variableFee:8},r).variable).toBe(8); });
   it("ML advance fee is off by default", () => { const r=cloneDefaults();r.mercadolivre.advance=2;expect(calculatePrice("mercadolivre",100,input,r).percent).toBe(14);expect(calculatePrice("mercadolivre",100,{...input,advanceEnabled:true},r).percent).toBe(16); });
   it("Magalu uses16%+5 or new-seller9.9%+5", () => { expect(calculatePrice("magalu",100,input).commission).toBe(16);expect(calculatePrice("magalu",100,input).fixed).toBe(5);expect(calculatePrice("magalu",100,{...input,newSeller:true}).commission).toBe(9.9); });
-  it("Wholesale has no platform fee and uses informed freight", () => { const v=calculatePrice("wholesale",100,{...input,freight:10});expect(v.commission).toBe(0);expect(v.fixed).toBe(0);expect(v.freight).toBe(10); });
+  it("Wholesale has no platform fee and seller freight is zero", () => { const v=calculatePrice("wholesale",100,{...input,freight:10});expect(v.commission).toBe(0);expect(v.fixed).toBe(0);expect(v.freight).toBe(0); });
   it("Subtracts freight packaging ads and tax from net profit", () => { const v=calculatePrice("shopee",29.9,{...input,packaging:1,freight:2,ads:1,adsMode:"fixed"});expect(v.profit).toBe(3.33); });
   it.each(PLATFORMS)("%s target price and break-even use their resulting tier", platform => { const s=solvePrice(platform,input,30);expect(s).not.toBeNull(); if(!s)return;expect(calculatePrice(platform,s.price,input).margin).toBeGreaterThanOrEqual(30);const b=solvePrice(platform,input,0);expect(b).not.toBeNull();if(b)expect(calculatePrice(platform,b.price,input).profit).toBeGreaterThanOrEqual(0); });
-  it("Target solver selects a valid lower candidate rather than iterating into an invalid tier", () => { const s=solvePrice("shopee",{...input,cost:30},30);expect(s?.price).toBe(93.88); });
+  it("Target solver selects the valid tier candidate with greater monetary profit", () => { const s=solvePrice("shopee",{...input,cost:30},30);expect(s?.price).toBe(102.05); expect(calculatePrice("shopee",s?.price ?? 0,{...input,cost:30}).profit).toBeGreaterThan(calculatePrice("shopee",93.88,{...input,cost:30}).profit); });
   it("Warns about fee change and actual profit lost at80", () => { const a=thresholdAlerts("shopee",79,input,cloneDefaults())[0];expect(a.threshold).toBe(80);expect(a.beforeFee).toBe(4.5);expect(a.afterFee).toBe(16);expect(a.profitLoss).toBe(6.69); });
   it("Next tier scenario preserves current monetary profit", () => { const s=nextTierScenario("shopee",79,input,cloneDefaults());expect(s).not.toBeNull();if(s){expect(s.price).toBeGreaterThanOrEqual(80);expect(calculatePrice("shopee",s.price,input).profit).toBeGreaterThanOrEqual(calculatePrice("shopee",79,input).profit);} });
   it("Impossible margin does not return a misleading sale price", () => expect(solvePrice("shopee",input,95)).toBeNull());
@@ -36,5 +36,29 @@ describe("final check: cost 10, tax 7%, price 29.90", () => {
   it("TikTok Shop", () => { const r = calculatePrice("tiktok", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([2.99, 4, 2.09, 10.82]); });
   it("Magalu", () => { const r = calculatePrice("magalu", 29.9, i); expect([r.commission, r.fixed, r.taxAmount, r.profit]).toEqual([4.78, 5, 2.09, 8.03]); });
   it("Atacado", () => { const r = calculatePrice("wholesale", 29.9, i); expect([r.commission, r.taxAmount, r.profit]).toEqual([0, 2.09, 17.81]); });
-  it("break-even is the lowest cent without loss", () => { const s = solvePrice("shopee", i, 0)!; const p = calculatePrice("shopee", s.price, i).profit; expect(p).toBeGreaterThanOrEqual(0); expect(p).toBeLessThanOrEqual(0.01); expect(calculatePrice("shopee", s.price - 0.01, i).profit).toBeLessThan(0); });
+  it("break-even is the lowest cent without loss", () => { const s = solvePrice("shopee", i, 0); expect(s).not.toBeNull(); if (!s) return; const p = calculatePrice("shopee", s.price, i).profit; expect(p).toBeGreaterThanOrEqual(0); expect(p).toBeLessThanOrEqual(0.01); expect(calculatePrice("shopee", s.price - 0.01, i).profit).toBeLessThan(0); });
+});
+
+
+describe("Uploaded tier and payout acceptance rules", () => {
+  const base = { ...EMPTY_INPUT, taxInformed: false, category: "vestidos", adType: "classic" as const };
+  it("A: ML89.99 shipping14.45 bonus0.09 payout63.03 profit13.03", () => {
+    const r = calculatePrice("mercadolivre",89.99,{...base,cost:50,tierShipping:{79:14.45},bonus:0.09});
+    expect(r.tier?.min).toBe(79); expect(r.commission).toBe(12.60); expect(r.variable).toBe(0); expect(r.freight).toBe(14.45); expect(r.bonus).toBe(0.09); expect(r.payout).toBe(63.03); expect(r.profit).toBe(13.03); expect(Number(r.margin.toFixed(1))).toBe(14.5);
+  });
+  it("B: ML29.90 unit6.50 payout19.21 profit9.21", () => {
+    const r=calculatePrice("mercadolivre",29.90,{...base,cost:10,tierShipping:{19:6.50}});
+    expect(r.tier?.min).toBe(19);expect(r.tier?.max).toBe(78.99);expect(r.commission).toBe(4.19);expect(r.variable).toBe(6.50);expect(r.freight).toBe(0);expect(r.payout).toBe(19.21);expect(r.profit).toBe(9.21);
+  });
+  it("C: Shopee89.99 commission12.60 fixed16.00", () => { const r=calculatePrice("shopee",89.99,base);expect(r.tier?.min).toBe(80);expect(r.commission).toBe(12.60);expect(r.fixed).toBe(16);expect(r.commission+r.fixed).toBe(28.60); });
+  it("D: TikTok39.90 commission3.99 fixed4.00", () => {const r=calculatePrice("tiktok",39.90,base);expect(r.tier?.max).toBe(49.99);expect(r.commission).toBe(3.99);expect(r.fixed).toBe(4);});
+  it("E: TikTok59.90 commission3.59 fixed6.00", () => {const r=calculatePrice("tiktok",59.90,base);expect(r.tier?.min).toBe(50);expect(r.commission).toBe(3.59);expect(r.fixed).toBe(6);});
+  it("Unspecified active shipping is unknown while explicit zero is confirmed",()=>{expect(calculatePrice("mercadolivre",89.99,base).missingShipping).toBe(true);expect(calculatePrice("mercadolivre",89.99,{...base,tierShipping:{79:0}}).missingShipping).toBe(false);});
+  it("Three ML product shipping values apply only to their own tier",()=>{const i={...base,tierShipping:{0:4,19:6.5,79:14.45}};expect(calculatePrice("mercadolivre",18.99,i).variable).toBe(4);expect(calculatePrice("mercadolivre",78.99,i).variable).toBe(6.5);expect(calculatePrice("mercadolivre",79,i).freight).toBe(14.45);});
+  it("Flex references6.25/6.65/7.75 are tier-aware and stop at79",()=>{const i={...base,logistics:"flex" as const};expect(calculatePrice("mercadolivre",18.99,i).variable).toBe(6.25);expect(calculatePrice("mercadolivre",29.90,i).variable).toBe(6.65);expect(calculatePrice("mercadolivre",59.90,i).variable).toBe(7.75);expect(calculatePrice("mercadolivre",79,i).variable).toBe(0);expect(calculatePrice("mercadolivre",79,i).missingShipping).toBe(true);});
+  it("ML alert compares78.99 and79 shipping with actual loss",()=>{const a=thresholdAlerts("mercadolivre",89.99,{...base,cost:50,tierShipping:{19:6.50,79:14.45}},cloneDefaults())[0];expect(a.threshold).toBe(79);expect(a.beforeShipping).toBe(6.5);expect(a.afterShipping).toBe(14.45);expect(a.profitLoss).toBe(7.94);expect(a.suggestedPrice).toBe(78.99);});
+  it("Magalu timely shipping discount applies to shipping only",()=>{const r=calculatePrice("magalu",100,{...base,freight:10,shippingDiscount:20});expect(r.freight).toBe(8);expect(r.commission).toBe(16);expect(r.fixed).toBe(5);});
+  it("Shopee campaign is other fee, not base commission",()=>{const r=calculatePrice("shopee",100,{...base,campaign:true});expect(r.commission).toBe(14);expect(r.extra).toBe(2.5);});
+  it("Seller discount selects ML shipping tier using final price",()=>{const r=calculatePrice("mercadolivre",89.99,{...base,discount:20,tierShipping:{19:6.5,79:14.45}});expect(r.price).toBe(69.99);expect(r.variable).toBe(6.5);expect(r.freight).toBe(0);});
+  it("Break-even is reconciled to zero when the rounded ledger permits",()=>{const i={...base,cost:10,tierShipping:{0:6.5,19:6.5,79:14.45}};const s=solvePrice("mercadolivre",i,0);expect(s).not.toBeNull();if(!s)return;expect(calculatePrice("mercadolivre",s.price,i).profit).toBe(0);expect(calculatePrice("mercadolivre",s.price-0.01,i).profit).toBeLessThan(0);});
 });
