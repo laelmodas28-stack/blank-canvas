@@ -1,4 +1,5 @@
 import { DEFAULT_RATES, upgradeRates, type Platform, type RateConfig, type Tier } from "./config";
+import { type CostOrigin } from "./profile";
 export const roundMoney = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 export interface PricingInput {
   cost: number; tax: number; packaging: number; freight?: number; ads: number; adsMode: "percent" | "fixed";
@@ -7,6 +8,7 @@ export interface PricingInput {
   shippingProgram?: boolean; affiliate?: number; newSeller?: boolean;
   tierShipping?: Record<string, number | undefined>; logistics?: "standard" | "flex"; reputation?: string;
   bonus?: number; shippingDiscount?: number; taxInformed?: boolean;
+  origins?: Partial<Record<string, CostOrigin>>; weightDefault?: boolean; shopeeLogistics?: "standard" | "seller";
 }
 export const EMPTY_INPUT: PricingInput = { cost: 0, tax: 0, packaging: 0, ads: 0, adsMode: "percent" };
 export const findTier = (price: number, tiers: Tier[]) => tiers.find(t => price >= t.min && (t.max === null || price <= t.max));
@@ -15,12 +17,15 @@ export function platformFees(platform: Platform, price: number, input: PricingIn
   let basePercent = tier?.commission ?? 0, fixed = tier?.fixed ?? 0, otherPercent = 0, extra = 0;
   let shipping = input.freight ?? tier?.shipping ?? undefined;
   let shippingKind = tier?.shippingKind ?? "freight";
+  let shippingOrigin: CostOrigin = input.freight !== undefined ? "informed" : tier?.calibrated ? "real" : tier?.shipping != null ? "automatic" : "estimated";
+  let shippingNote = "";
   if (platform === "shopee") {
     const r = rates.shopee;
     if (price < r.lowPriceThreshold) fixed = price * r.lowPriceFixedPercent / 100;
     if (input.document === "cpf" && input.highOrders) fixed += r.cpfExtra;
     basePercent = Math.max(0, basePercent - (input.advanceReduction ?? r.advanceReduction));
     if (input.campaign) otherPercent += r.campaign;
+    if (input.freight === undefined && input.shopeeLogistics !== "seller" && tier?.shipping == null) { shipping = 0; shippingOrigin = "automatic"; }
   } else if (platform === "mercadolivre") {
     const r = rates.mercadolivre, type = input.adType ?? "classic";
     basePercent = (r.categories[input.category ?? ""]?.[type] ?? r[type]) + ((tier?.commission ?? r.classic) - r.classic);
@@ -29,8 +34,15 @@ export function platformFees(platform: Platform, price: number, input: PricingIn
     if (tier) {
       const custom = input.tierShipping?.[String(tier.min)];
       const flex = input.logistics === "flex" && shippingKind === "unit" ? findTier(price, r.flexTiers)?.shipping : undefined;
-      const row = [...r.weightFees].sort((a,b) => a.maxWeight - b.maxWeight).find(t => (input.weight ?? 0) <= t.maxWeight && price >= t.minPrice && (t.maxPrice === null || price <= t.maxPrice));
-      shipping = custom ?? flex ?? (shippingKind === "unit" ? input.variableFee ?? row?.amount : input.freight) ?? tier.shipping ?? undefined;
+      const weight = input.weight ?? 0.5;
+      const row = [...r.weightFees].sort((a,b) => a.maxWeight - b.maxWeight).find(t => weight <= t.maxWeight && price >= t.minPrice && (t.maxPrice === null || price <= t.maxPrice));
+      const column = r.shippingColumns?.find(c => price >= c.min && (c.max === null || price <= c.max));
+      const manual = custom ?? (shippingKind === "unit" ? input.variableFee : input.freight);
+      const table = row ? roundMoney(row.amount + (column?.adjustment ?? 0)) : undefined;
+      shipping = manual ?? (tier.calibrated ? tier.shipping ?? undefined : undefined) ?? flex ?? table ?? tier.shipping ?? undefined;
+      shippingOrigin = manual !== undefined ? "informed" : tier.calibrated ? "real" : flex !== undefined ? "automatic" : table !== undefined ? (input.weightDefault || input.weight === undefined ? "estimated" : "automatic") : tier.shipping != null ? "automatic" : "estimated";
+      if (table !== undefined && (input.weightDefault || input.weight === undefined)) shippingNote = "Frete estimado, peso padrão";
+      else if (shipping === undefined) shippingNote = "Frete estimado em R$0; célula da tabela não cadastrada";
     }
   } else if (platform === "tiktok") {
     if (input.newSeller) basePercent = 0;
@@ -39,11 +51,12 @@ export function platformFees(platform: Platform, price: number, input: PricingIn
   } else if (platform === "magalu") {
     if (input.newSeller) basePercent = rates.magalu.newSeller;
     if (shipping !== undefined) shipping *= 1 - Math.min(100, input.shippingDiscount ?? 0) / 100;
-  } else if (platform === "wholesale") { basePercent = 0; fixed = 0; shipping = 0; shippingKind = "freight"; }
+  } else if (platform === "wholesale") { basePercent = 0; fixed = 0; shipping = 0; shippingKind = "freight"; shippingOrigin = "automatic"; }
   extra = roundMoney(extra + roundMoney(price * otherPercent / 100));
   const missingShipping = shipping === undefined;
+  if (missingShipping && !shippingNote) shippingNote = "frete estimado em R$0";
   return { percent: basePercent + otherPercent, basePercent, fixed: roundMoney(fixed), variable: shippingKind === "unit" ? roundMoney(shipping ?? 0) : 0,
-    freight: shippingKind === "freight" ? roundMoney(shipping ?? 0) : 0, extra, otherPercent, missingShipping, shippingKind, tier };
+    freight: shippingKind === "freight" ? roundMoney(shipping ?? 0) : 0, extra, otherPercent, missingShipping, shippingKind, tier, shippingOrigin, shippingNote };
 }
 export function calculatePrice(platform: Platform, salePrice: number, input: PricingInput, rates: RateConfig = DEFAULT_RATES) {
   const price = roundMoney(Math.max(0, salePrice - (input.discount ?? 0))), fees = platformFees(platform, price, input, rates);
@@ -51,7 +64,10 @@ export function calculatePrice(platform: Platform, salePrice: number, input: Pri
   const adsAmount = roundMoney(input.adsMode === "percent" ? price * input.ads / 100 : input.ads), bonus = roundMoney(input.bonus ?? 0);
   const payout = roundMoney(price - commission - fees.fixed - fees.variable - fees.extra - fees.freight + bonus);
   const profit = roundMoney(payout - input.cost - input.packaging - taxAmount - adsAmount), totalCosts = roundMoney(price - profit);
-  return { price, commission, taxAmount, adsAmount, bonus, payout, totalCosts, profit, margin: price > 0 ? profit / price * 100 : 0, roi: input.cost > 0 ? profit / input.cost * 100 : 0, ...fees };
+  const origins: Record<string, CostOrigin> = { product: "informed", commission: fees.tier?.calibrated ? "real" : "automatic", fixed: fees.tier?.calibrated ? "real" : "automatic", shipping: fees.shippingOrigin, extra: "automatic", bonus: input.bonus === undefined ? "automatic" : "informed", tax: input.origins?.tax ?? "informed", packaging: input.origins?.packaging ?? "informed", ads: input.origins?.ads ?? "informed" };
+  const labels: Record<string,string> = { shipping: fees.shippingNote || "Frete", tax: "Imposto", packaging: "Embalagem", ads: "Ads" };
+  const estimates = Object.entries(origins).filter(([,v]) => v === "profile" || v === "estimated").map(([key]) => labels[key] ?? key);
+  return { price, commission, taxAmount, adsAmount, bonus, payout, totalCosts, profit, margin: price > 0 ? profit / price * 100 : 0, roi: input.cost > 0 ? profit / input.cost * 100 : 0, ...fees, origins, estimates, estimated: estimates.length > 0 };
 }
 export type PriceResult = ReturnType<typeof calculatePrice>;
 export function priceBoundaries(platform: Platform, input: PricingInput, config: RateConfig): number[] {
@@ -62,6 +78,7 @@ export function priceBoundaries(platform: Platform, input: PricingInput, config:
     if (input.logistics === "flex") points.push(...rates.mercadolivre.flexTiers.map(t => t.min));
     if (input.reducedCategory && rates.mercadolivre.reduced !== null) points.push(rates.mercadolivre.reducedMin, rates.mercadolivre.reducedMax + 0.01);
     for (const t of rates.mercadolivre.weightFees) { points.push(t.minPrice); if (t.maxPrice !== null) points.push(t.maxPrice + 0.01); }
+    points.push(...(rates.mercadolivre.shippingColumns ?? []).map(c => c.min));
   }
   return [...new Set(points.filter(p => Number.isFinite(p) && p >= 0))].sort((a,b) => a-b);
 }
@@ -96,10 +113,10 @@ export function nextTierScenario(platform: Platform, currentPrice: number, input
   return next === undefined ? null : solvePrice(platform, { ...input, discount: 0 }, 0, rates, next, calculatePrice(platform, currentPrice, { ...input, discount: 0 }, rates).profit);
 }
 export function thresholdAlerts(platform: Platform, price: number, input: PricingInput, config: RateConfig) {
-  const rates = upgradeRates(config), tiers = rates[platform].tiers;
-  return tiers.slice(1).filter(t => platform === "mercadolivre" ? t.shippingKind === "freight" && Math.abs(price - t.min) <= 11 : (platform === "shopee" || platform === "tiktok") && Math.abs(price - t.min) <= 5).map(t => {
-    const before = calculatePrice(platform, t.min - 0.01, { ...input, discount: 0 }, rates), after = calculatePrice(platform, t.min, { ...input, discount: 0 }, rates);
-    return { threshold: t.min, beforeFee: before.fixed, afterFee: after.fixed, beforeShipping: before.freight + before.variable, afterShipping: after.freight + after.variable,
-      profitLoss: roundMoney(before.profit - after.profit), suggestedPrice: t.min - 0.01, missingShipping: before.missingShipping || after.missingShipping };
-  });
+  const rates = upgradeRates(config);
+  return priceBoundaries(platform,input,rates).filter(p => p > 0 && (platform === "mercadolivre" ? Math.abs(price-p) <= 11 : (platform === "shopee" || platform === "tiktok") && Math.abs(price-p) <= 5)).map(p => {
+    const before = calculatePrice(platform, p - 0.01, { ...input, discount: 0 }, rates), after = calculatePrice(platform, p, { ...input, discount: 0 }, rates);
+    return { threshold: p, beforeFee: before.fixed, afterFee: after.fixed, beforeShipping: before.freight + before.variable, afterShipping: after.freight + after.variable,
+      profitLoss: roundMoney(before.profit - after.profit), suggestedPrice: p - 0.01, missingShipping: before.missingShipping || after.missingShipping };
+  }).filter(a => a.beforeFee !== a.afterFee || a.beforeShipping !== a.afterShipping || Math.abs(a.profitLoss) > 0.02);
 }

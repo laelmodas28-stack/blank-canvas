@@ -10,3 +10,9 @@
 - [x] Campos vazios, regras aplicadas, alertas e custos por produto preservando telas.
 - [x] Conferência de venda real com ajustes explícitos e referências locais.
 - [x] Testes A–E e verificação do fluxo no navegador.
+
+# Simplificação automática
+- [ ] Padrões no Perfil da loja e origem dos custos sem bloqueios.
+- [ ] Frete por peso/preço, ajustes por coluna e alertas automáticos.
+- [ ] Cards, entradas numéricas e preços mínimo/alvo preservando visual.
+- [ ] Auditoria TA1–TA8, regressões e fluxo no navegador.
