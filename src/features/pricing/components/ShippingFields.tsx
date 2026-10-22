@@ -4,7 +4,15 @@ import { NumberField, parseDecimal, inputClass, Segmented } from "./Fields";
 import { brl } from "./PriceBreakdown";
 export function ShippingFields({ platform, rates, values, onChange }: { platform: Platform; rates: RateConfig; values: Record<string,string>; onChange: (key: string, text: string) => void }) {
   if (platform === "wholesale") return <p className="text-xs text-muted-foreground">Atacado: sem comissão e sem tarifa; frete por conta do cliente.</p>;
-  if (platform === "mercadolivre") return <div className="space-y-3">{rates.mercadolivre.tiers.map(t => <NumberField key={t.min} label={`${t.shippingKind === "unit" ? "Custo de envio/unidade" : "Frete Mercado Envios por sua conta"} · ${t.max === null ? `a partir de ${brl(t.min)}` : `${brl(t.min)} a ${brl(t.max)}`} value={values[String(t.min)] ?? ""} onChange={text => onChange(String(t.min), text)} hint="Informe a partir do Simulador de custos do anúncio; vazio = não informado." />)}</div>;
+  if (platform === "mercadolivre") return (
+    <div className="space-y-3">
+      {rates.mercadolivre.tiers.map(t => {
+        const costLabel = t.shippingKind === "unit" ? "Custo de envio/unidade" : "Frete Mercado Envios por sua conta";
+        const rangeLabel = t.max === null ? `a partir de ${brl(t.min)}` : `${brl(t.min)} a ${brl(t.max)}`;
+        return <NumberField key={t.min} label={`${costLabel} · ${rangeLabel}`} value={values[String(t.min)] ?? ""} onChange={text => onChange(String(t.min), text)} hint="Informe a partir do Simulador de custos do anúncio; vazio = não informado." />;
+      })}
+    </div>
+  );
   return <NumberField label={platform === "shopee" ? "Frete/custo a cargo do vendedor (R$)" : "Frete a cargo do vendedor (R$)"} value={values.freight ?? ""} onChange={text => onChange("freight", text)} hint={platform === "shopee" ? "Confirme no extrato de uma venda real." : "Vazio = não informado."} />;
 }
 export function ShippingOptions({ input, onChange }: { input: PricingInput; onChange: (patch: Partial<PricingInput>) => void }) {
