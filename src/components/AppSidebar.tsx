@@ -48,7 +48,7 @@ const historicoItems = [
 
 const configItems = [
   { title: "Taxas", url: "/taxas", icon: SlidersHorizontal },
-  { title: "Perfil do Usuário", url: "/configuracoes", icon: User },
+  { title: "Perfil da loja", url: "/configuracoes", icon: User },
   { title: "Preferências", url: "/preferencias", icon: SlidersHorizontal },
 ];
 
