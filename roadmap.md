@@ -12,7 +12,8 @@
 - [x] Testes A–E e verificação do fluxo no navegador.
 
 # Simplificação automática
-- [ ] Padrões no Perfil da loja e origem dos custos sem bloqueios.
-- [ ] Frete por peso/preço, ajustes por coluna e alertas automáticos.
-- [ ] Cards, entradas numéricas e preços mínimo/alvo preservando visual.
-- [ ] Auditoria TA1–TA8, regressões e fluxo no navegador.
+- [x] Padrões no Perfil da loja e origem dos custos sem bloqueios.
+- [x] Frete por peso/preço, ajustes por coluna e alertas automáticos nas células fornecidas.
+- [x] Cards, entradas numéricas e preços mínimo/alvo preservando visual.
+- [x] Auditoria TA1–TA8, 71 testes e fluxo no navegador.
+- [ ] Completar células de frete não fornecidas: aguarda tabela real da loja/ML; mantém R$0 estimado explicitamente.

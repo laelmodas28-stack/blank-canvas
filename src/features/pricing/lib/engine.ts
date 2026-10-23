@@ -107,7 +107,8 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
   }
   // Prefer actual target roots; only fall back to a valid tier start when discontinuities leave no root.
   const exact = margin > 0 ? candidates.filter(c => !c.atStep || Math.abs(ledger(c.price).margin - margin) < 0.1) : candidates;
-  const roots = exact.length > 0 ? exact : candidates;
+  if (margin > 0 && exact.length === 0) return candidates.sort((a,b) => a.price-b.price)[0] ?? null;
+  const roots = exact;
   return (margin > 0 ? roots.sort((a,b) => ledger(b.price).profit - ledger(a.price).profit) : candidates.sort((a,b) => a.price-b.price))[0] ?? null;
 }
 export function nextTierScenario(platform: Platform, currentPrice: number, input: PricingInput, rates: RateConfig) {
@@ -119,6 +120,6 @@ export function thresholdAlerts(platform: Platform, price: number, input: Pricin
   return priceBoundaries(platform,input,rates).filter(p => p > 0 && (platform === "mercadolivre" ? Math.abs(price-p) <= 11 : (platform === "shopee" || platform === "tiktok") && Math.abs(price-p) <= 5)).map(p => {
     const before = calculatePrice(platform, p - 0.01, { ...input, discount: 0 }, rates), after = calculatePrice(platform, p, { ...input, discount: 0 }, rates);
     return { threshold: p, beforeFee: before.fixed, afterFee: after.fixed, beforeShipping: before.freight + before.variable, afterShipping: after.freight + after.variable,
-      profitLoss: roundMoney(before.profit - after.profit), suggestedPrice: p - 0.01, missingShipping: before.missingShipping || after.missingShipping };
+      profitLoss: roundMoney(before.profit - after.profit), suggestedPrice: p - 0.01, missingShipping: before.missingShipping || after.missingShipping, estimated: before.estimated || after.estimated };
   }).filter(a => a.beforeFee !== a.afterFee || a.beforeShipping !== a.afterShipping || Math.abs(a.profitLoss) > 0.02);
 }
