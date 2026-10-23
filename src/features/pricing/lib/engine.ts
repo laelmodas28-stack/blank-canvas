@@ -105,8 +105,9 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
       if (meets(candidate)) { candidates.push({ price: candidate, atStep: candidate === low && low > 0 }); break; }
     }
   }
-  // A discontinuous tier can exceed the target immediately; retain that valid step and disclose its tier.
-  const roots = candidates;
+  // Prefer actual target roots; only fall back to a valid tier start when discontinuities leave no root.
+  const exact = margin > 0 ? candidates.filter(c => !c.atStep || Math.abs(ledger(c.price).margin - margin) < 0.1) : candidates;
+  const roots = exact.length > 0 ? exact : candidates;
   return (margin > 0 ? roots.sort((a,b) => ledger(b.price).profit - ledger(a.price).profit) : candidates.sort((a,b) => a.price-b.price))[0] ?? null;
 }
 export function nextTierScenario(platform: Platform, currentPrice: number, input: PricingInput, rates: RateConfig) {
