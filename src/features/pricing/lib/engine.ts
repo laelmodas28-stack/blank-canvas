@@ -39,7 +39,8 @@ export function platformFees(platform: Platform, price: number, input: PricingIn
       const column = r.shippingColumns?.find(c => price >= c.min && (c.max === null || price <= c.max));
       const manual = custom ?? (shippingKind === "unit" ? input.variableFee : input.freight);
       const table = row ? roundMoney(row.amount + (column?.adjustment ?? 0)) : undefined;
-      shipping = manual ?? (tier.calibrated ? tier.shipping ?? undefined : undefined) ?? flex ?? table ?? tier.shipping ?? undefined;
+      const calibratedShipping = tier.calibrated ? tier.shipping : null;
+      shipping = manual ?? calibratedShipping ?? flex ?? table ?? tier.shipping ?? undefined;
       shippingOrigin = manual !== undefined ? "informed" : tier.calibrated ? "real" : flex !== undefined ? "automatic" : table !== undefined ? (input.weightDefault || input.weight === undefined ? "estimated" : "automatic") : tier.shipping != null ? "automatic" : "estimated";
       if (table !== undefined && (input.weightDefault || input.weight === undefined)) shippingNote = "Frete estimado, peso padrão";
       else if (shipping === undefined) shippingNote = "Frete estimado em R$0; célula da tabela não cadastrada";
