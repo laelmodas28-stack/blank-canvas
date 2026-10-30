@@ -19,14 +19,26 @@ describe("Automatic pricing acceptance TA1–TA8", () => {
   });
   it("Table shipping with explicit weight and costs is confirmed", () => {
     const r=calculatePrice("mercadolivre",89.99,{...EMPTY_INPUT,cost:50,weight:0.8});
-    expect(r.freight).toBe(13.85);expect(r.estimated).toBe(false);
+    expect(r.freight).toBe(14.45);expect(r.estimated).toBe(false);
   });
-  it("Missing table cell is estimated zero, not a fabricated tariff", () => {
+  it("Official table fills every ML cell: R$150 at 1,5–2 kg is R$22,25", () => {
     const r=calculatePrice("mercadolivre",150,{...EMPTY_INPUT,cost:50,weight:2});
-    expect(r.freight).toBe(0);expect(r.estimated).toBe(true);expect(r.shippingNote).toContain("não cadastrada");
+    expect(r.freight).toBe(22.25);expect(r.shippingNote).not.toContain("não cadastrada");
+  });
+  it("ML column A charges the lower of table and 50% of price", () => {
+    expect(calculatePrice("mercadolivre",10,{...EMPTY_INPUT,weight:1}).variable).toBe(5);
+    expect(calculatePrice("mercadolivre",18,{...EMPTY_INPUT,weight:1}).variable).toBe(6.05);
+  });
+  it("ML R$19–48,99 and R$49–78,99 are separate columns", () => {
+    expect(calculatePrice("mercadolivre",34.2,{...EMPTY_INPUT,weight:1}).variable).toBe(7.15);
+    expect(calculatePrice("mercadolivre",60,{...EMPTY_INPUT,weight:1}).variable).toBe(8.45);
   });
   it("Explicit freight overrides table and column adjustment", () => {
     const rates=cloneDefaults(); rates.mercadolivre.shippingColumns=rates.mercadolivre.shippingColumns?.map(c=>({...c,adjustment:5}));
     expect(calculatePrice("mercadolivre",89.99,{...EMPTY_INPUT,tierShipping:{79:0},weight:0.8},rates).freight).toBe(0);
   });
+});
+import { lucroCertoChecks } from "./audit";
+describe("Lucro Certo acceptance: cost10, price34.20, default weight class", () => {
+  it.each(lucroCertoChecks())("$id", c => expect(c.passed).toBe(true));
 });

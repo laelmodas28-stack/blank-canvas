@@ -101,7 +101,7 @@ export function upgradeRates(rates: RateConfig): RateConfig {
   return { ...defaults, ...rates,
     mercadolivre: { ...defaults.mercadolivre, ...rates.mercadolivre,
       shippingColumns: rates.mercadolivre.shippingColumns ?? defaults.mercadolivre.shippingColumns,
-      weightFees: (rates.mercadolivre.weightFees?.length ?? 0) < defaults.mercadolivre.weightFees.length ? defaults.mercadolivre.weightFees : rates.mercadolivre.weightFees },
+      weightFees: (rates.version ?? "") < "2026-10-30" && (rates.mercadolivre.weightFees?.length ?? 0) <= 4 ? defaults.mercadolivre.weightFees : rates.mercadolivre.weightFees },
     magalu: { ...defaults.magalu, ...rates.magalu, tiers: rates.magalu.tiers ?? defaults.magalu.tiers.map(t => ({ ...t, commission: rates.magalu.commission, fixed: rates.magalu.fixed })) },
     wholesale: { ...defaults.wholesale, ...rates.wholesale },
   };
