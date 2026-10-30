@@ -89,7 +89,7 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
   const normalized = { ...input, discount: 0 }, boundaries = priceBoundaries(platform, normalized, rates);
   const ledger = (p: number) => calculatePrice(platform, p, normalized, rates);
   // Exact (unrounded) profit so prices always round up to the next cent.
-  const exactProfit = (p: number) => { const l = ledger(p); return l.profit + (l.commission - l.price * l.basePercent / 100) + (l.taxAmount - l.price * normalized.tax / 100) + (normalized.adsMode === "percent" ? l.adsAmount - l.price * normalized.ads / 100 : 0) + (l.extra - l.price * l.otherPercent / 100 > 0 && platform !== "tiktok" ? l.extra - l.price * l.otherPercent / 100 : 0); };
+  const exactProfit = (p: number) => { const l = ledger(p); return l.profit + (l.commission - l.price * l.basePercent / 100) + (l.taxAmount - l.price * normalized.tax / 100) + (normalized.adsMode === "percent" ? l.adsAmount - l.price * normalized.ads / 100 : 0); };
   const meets = (p: number) => exactProfit(p) + 0.000001 >= p * margin / 100 + targetProfit;
   const candidates: { price: number; atStep: boolean }[] = [];
   for (let i = 0; i < boundaries.length; i++) {
