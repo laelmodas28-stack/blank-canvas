@@ -11,6 +11,6 @@ export function resolveDefaults(input: PricingInput, profile: StoreProfile, blan
   };
   const tax = resolve("tax"), packaging = resolve("packaging"), ads = resolve("ads");
   const weightOrigin = input.weight === undefined ? profile.weight === undefined ? "estimated" : "profile" : "informed";
-  return { ...input, tax, packaging, ads, adsMode: blank.ads ? "percent" : input.adsMode, taxInformed: true, weight: input.weight ?? profile.weight ?? 0.5,
+  return { ...input, tax, packaging, ads, adsMode: blank.ads ? "percent" : input.adsMode, taxInformed: true, weight: input.weight ?? profile.weight ?? 1,
     weightDefault: input.weight === undefined, reputation: input.reputation ?? profile.reputation ?? "Verde", origins: { ...origins, weight: weightOrigin, reputation: input.reputation ? "informed" : profile.reputation ? "profile" : "estimated" } };
 }
