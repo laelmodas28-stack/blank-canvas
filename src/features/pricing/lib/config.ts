@@ -7,12 +7,66 @@ export interface WeightFee { maxWeight: number; minPrice: number; maxPrice: numb
 export interface ShippingColumn { min: number; max: number | null; adjustment: number; }
 // Only cells supplied by the store are populated; other cells remain explicitly estimated.
 export const SHIPPING_COLUMNS: ShippingColumn[] = [0,19,49,79,100,120,150,200].map((min,i,a) => ({ min, max: i+1 < a.length ? a[i+1]-0.01 : null, adjustment: 0 }));
+/** Official Mercado Livre shipping table (Oct/2026, green reputation / MercadoLíder / no reputation). Rows: weight class; columns A–H. */
 export const REFERENCE_WEIGHT_FEES: WeightFee[] = [
-  { maxWeight: 0.5, minPrice: 49, maxPrice: 78.99, amount: 7.85 },
-  { maxWeight: 1, minPrice: 49, maxPrice: 78.99, amount: 7.85 },
-  { maxWeight: 0.5, minPrice: 79, maxPrice: 99.99, amount: 13.25 },
-  { maxWeight: 1, minPrice: 79, maxPrice: 99.99, amount: 13.85 },
+  { maxWeight: 0.3, minPrice: 0, maxPrice: 18.99, amount: 5.65 },
+  { maxWeight: 0.3, minPrice: 19, maxPrice: 48.99, amount: 6.85 },
+  { maxWeight: 0.3, minPrice: 49, maxPrice: 78.99, amount: 8.15 },
+  { maxWeight: 0.3, minPrice: 79, maxPrice: 99.99, amount: 12.95 },
+  { maxWeight: 0.3, minPrice: 100, maxPrice: 119.99, amount: 14.95 },
+  { maxWeight: 0.3, minPrice: 120, maxPrice: 149.99, amount: 16.95 },
+  { maxWeight: 0.3, minPrice: 150, maxPrice: 199.99, amount: 19.05 },
+  { maxWeight: 0.3, minPrice: 200, maxPrice: null, amount: 21.65 },
+  { maxWeight: 0.5, minPrice: 0, maxPrice: 18.99, amount: 5.95 },
+  { maxWeight: 0.5, minPrice: 19, maxPrice: 48.99, amount: 6.95 },
+  { maxWeight: 0.5, minPrice: 49, maxPrice: 78.99, amount: 8.25 },
+  { maxWeight: 0.5, minPrice: 79, maxPrice: 99.99, amount: 13.85 },
+  { maxWeight: 0.5, minPrice: 100, maxPrice: 119.99, amount: 16.15 },
+  { maxWeight: 0.5, minPrice: 120, maxPrice: 149.99, amount: 18.15 },
+  { maxWeight: 0.5, minPrice: 150, maxPrice: 199.99, amount: 20.45 },
+  { maxWeight: 0.5, minPrice: 200, maxPrice: null, amount: 23.25 },
+  { maxWeight: 1, minPrice: 0, maxPrice: 18.99, amount: 6.05 },
+  { maxWeight: 1, minPrice: 19, maxPrice: 48.99, amount: 7.15 },
+  { maxWeight: 1, minPrice: 49, maxPrice: 78.99, amount: 8.45 },
+  { maxWeight: 1, minPrice: 79, maxPrice: 99.99, amount: 14.45 },
+  { maxWeight: 1, minPrice: 100, maxPrice: 119.99, amount: 16.85 },
+  { maxWeight: 1, minPrice: 120, maxPrice: 149.99, amount: 19.05 },
+  { maxWeight: 1, minPrice: 150, maxPrice: 199.99, amount: 21.35 },
+  { maxWeight: 1, minPrice: 200, maxPrice: null, amount: 24.45 },
+  { maxWeight: 1.5, minPrice: 0, maxPrice: 18.99, amount: 6.15 },
+  { maxWeight: 1.5, minPrice: 19, maxPrice: 48.99, amount: 7.35 },
+  { maxWeight: 1.5, minPrice: 49, maxPrice: 78.99, amount: 8.65 },
+  { maxWeight: 1.5, minPrice: 79, maxPrice: 99.99, amount: 14.75 },
+  { maxWeight: 1.5, minPrice: 100, maxPrice: 119.99, amount: 17.15 },
+  { maxWeight: 1.5, minPrice: 120, maxPrice: 149.99, amount: 19.45 },
+  { maxWeight: 1.5, minPrice: 150, maxPrice: 199.99, amount: 21.75 },
+  { maxWeight: 1.5, minPrice: 200, maxPrice: null, amount: 25.45 },
+  { maxWeight: 2, minPrice: 0, maxPrice: 18.99, amount: 6.25 },
+  { maxWeight: 2, minPrice: 19, maxPrice: 48.99, amount: 7.45 },
+  { maxWeight: 2, minPrice: 49, maxPrice: 78.99, amount: 8.75 },
+  { maxWeight: 2, minPrice: 79, maxPrice: 99.99, amount: 15.05 },
+  { maxWeight: 2, minPrice: 100, maxPrice: 119.99, amount: 17.65 },
+  { maxWeight: 2, minPrice: 120, maxPrice: 149.99, amount: 19.85 },
+  { maxWeight: 2, minPrice: 150, maxPrice: 199.99, amount: 22.25 },
+  { maxWeight: 2, minPrice: 200, maxPrice: null, amount: 25.55 },
+  { maxWeight: 3, minPrice: 0, maxPrice: 18.99, amount: 6.35 },
+  { maxWeight: 3, minPrice: 19, maxPrice: 48.99, amount: 8.65 },
+  { maxWeight: 3, minPrice: 49, maxPrice: 78.99, amount: 9.15 },
+  { maxWeight: 3, minPrice: 79, maxPrice: 99.99, amount: 16.45 },
+  { maxWeight: 3, minPrice: 100, maxPrice: 119.99, amount: 19.15 },
+  { maxWeight: 3, minPrice: 120, maxPrice: 149.99, amount: 21.65 },
+  { maxWeight: 3, minPrice: 150, maxPrice: 199.99, amount: 24.35 },
+  { maxWeight: 3, minPrice: 200, maxPrice: null, amount: 27.05 },
+  { maxWeight: 5, minPrice: 0, maxPrice: 18.99, amount: 6.55 },
+  { maxWeight: 5, minPrice: 19, maxPrice: 48.99, amount: 8.85 },
+  { maxWeight: 5, minPrice: 49, maxPrice: 78.99, amount: 10.25 },
+  { maxWeight: 5, minPrice: 79, maxPrice: 99.99, amount: 19.75 },
+  { maxWeight: 5, minPrice: 100, maxPrice: 119.99, amount: 22.85 },
+  { maxWeight: 5, minPrice: 120, maxPrice: 149.99, amount: 26.05 },
+  { maxWeight: 5, minPrice: 150, maxPrice: 199.99, amount: 29.25 },
+  { maxWeight: 5, minPrice: 200, maxPrice: null, amount: 32.45 },
 ];
+export const ML_LOW_COLUMN_CAP_PERCENT = 50;
 export interface RateConfig {
   version: string; updatedAt: string;
   shopee: { tiers: Tier[]; lowPriceThreshold: number; lowPriceFixedPercent: number; cpfExtra: number; cpfOrderThreshold: number; campaign: number; advanceReduction: number; freight: number; };
@@ -23,7 +77,7 @@ export interface RateConfig {
   recommendedAdsPercent: number;
 }
 export const DEFAULT_RATES: RateConfig = {
-  version: "2026-10-21", updatedAt: "2026-10-21T00:00:00Z",
+  version: "2026-10-30", updatedAt: "2026-10-30T00:00:00Z",
   shopee: { tiers: [{ min: 0, max: 79.99, commission: 20, fixed: 4.5 }, { min: 80, max: 99.99, commission: 14, fixed: 16 }, { min: 100, max: 199.99, commission: 14, fixed: 20 }, { min: 200, max: null, commission: 14, fixed: 26 }], lowPriceThreshold: 9, lowPriceFixedPercent: 50, cpfExtra: 3, cpfOrderThreshold: 450, campaign: 2.5, advanceReduction: 0, freight: 0 },
   mercadolivre: { tiers: [
     { min: 0, max: 18.99, commission: 14, fixed: 0, shipping: null, shippingKind: "unit", payer: "buyer", note: "Comprador paga o frete; vendedor paga envio por unidade." },
@@ -47,7 +101,7 @@ export function upgradeRates(rates: RateConfig): RateConfig {
   return { ...defaults, ...rates,
     mercadolivre: { ...defaults.mercadolivre, ...rates.mercadolivre,
       shippingColumns: rates.mercadolivre.shippingColumns ?? defaults.mercadolivre.shippingColumns,
-      weightFees: rates.mercadolivre.shippingColumns === undefined && rates.mercadolivre.weightFees.length === 0 ? defaults.mercadolivre.weightFees : rates.mercadolivre.weightFees },
+      weightFees: (rates.version ?? "") < "2026-10-30" && (rates.mercadolivre.weightFees?.length ?? 0) <= 4 ? defaults.mercadolivre.weightFees : rates.mercadolivre.weightFees },
     magalu: { ...defaults.magalu, ...rates.magalu, tiers: rates.magalu.tiers ?? defaults.magalu.tiers.map(t => ({ ...t, commission: rates.magalu.commission, fixed: rates.magalu.fixed })) },
     wholesale: { ...defaults.wholesale, ...rates.wholesale },
   };

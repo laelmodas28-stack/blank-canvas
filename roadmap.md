@@ -16,4 +16,8 @@
 - [x] Frete por peso/preço, ajustes por coluna e alertas automáticos nas células fornecidas.
 - [x] Cards, entradas numéricas e preços mínimo/alvo preservando visual.
 - [x] Auditoria TA1–TA8, 71 testes e fluxo no navegador.
-- [ ] Completar células de frete não fornecidas: aguarda tabela real da loja/ML; mantém R$0 estimado explicitamente.
+- [x] Tabela oficial de frete ML (out/2026) carregada nas 8 colunas.
+# Lucro Certo
+- [x] Correção ML (tabela, coluna A 50%, sem taxa fixa) e mínimo arredondado para cima.
+- [x] Entrada simples com "Mais opções", cards com "Como chegamos nesse valor?", aviso único e tabela comparativa.
+- [x] Auditoria com os casos de custo R$10 e preço R$34,20.

@@ -1,4 +1,4 @@
-import { DEFAULT_RATES, upgradeRates, type Platform, type RateConfig, type Tier } from "./config";
+import { DEFAULT_RATES, ML_LOW_COLUMN_CAP_PERCENT, upgradeRates, type Platform, type RateConfig, type Tier } from "./config";
 import { type CostOrigin } from "./profile";
 export const roundMoney = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 export interface PricingInput {
@@ -38,7 +38,8 @@ export function platformFees(platform: Platform, price: number, input: PricingIn
       const row = [...r.weightFees].sort((a,b) => a.maxWeight - b.maxWeight).find(t => weight <= t.maxWeight && price >= t.minPrice && (t.maxPrice === null || price <= t.maxPrice));
       const column = r.shippingColumns?.find(c => price >= c.min && (c.max === null || price <= c.max));
       const manual = custom ?? (shippingKind === "unit" ? input.variableFee : input.freight);
-      const table = row ? roundMoney(row.amount + (column?.adjustment ?? 0)) : undefined;
+      const rawTable = row ? roundMoney(row.amount + (column?.adjustment ?? 0)) : undefined;
+      const table = rawTable !== undefined && row && row.minPrice === 0 ? roundMoney(Math.min(rawTable, price * ML_LOW_COLUMN_CAP_PERCENT / 100)) : rawTable;
       const calibratedShipping = tier.calibrated ? tier.shipping : null;
       shipping = manual ?? calibratedShipping ?? flex ?? table ?? tier.shipping ?? undefined;
       shippingOrigin = manual !== undefined ? "informed" : tier.calibrated ? "real" : flex !== undefined ? "automatic" : table !== undefined ? (input.weightDefault || input.weight === undefined ? "estimated" : "automatic") : tier.shipping != null ? "automatic" : "estimated";
@@ -87,7 +88,9 @@ export function solvePrice(platform: Platform, input: PricingInput, margin: numb
   if (margin < 0 || margin >= 100 || Object.values(input).some(v => typeof v === "number" && (!Number.isFinite(v) || v < 0))) return null;
   const normalized = { ...input, discount: 0 }, boundaries = priceBoundaries(platform, normalized, rates);
   const ledger = (p: number) => calculatePrice(platform, p, normalized, rates);
-  const meets = (p: number) => ledger(p).profit + 0.000001 >= p * margin / 100 + targetProfit;
+  // Exact (unrounded) profit so prices always round up to the next cent.
+  const exactProfit = (p: number) => { const l = ledger(p); return l.profit + (l.commission - l.price * l.basePercent / 100) + (l.taxAmount - l.price * normalized.tax / 100) + (normalized.adsMode === "percent" ? l.adsAmount - l.price * normalized.ads / 100 : 0); };
+  const meets = (p: number) => exactProfit(p) + 0.000001 >= p * margin / 100 + targetProfit;
   const candidates: { price: number; atStep: boolean }[] = [];
   for (let i = 0; i < boundaries.length; i++) {
     const low = Math.max(boundaries[i], minimum), high = i + 1 < boundaries.length ? boundaries[i+1] - 0.01 : Infinity;
