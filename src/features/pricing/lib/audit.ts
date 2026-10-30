@@ -3,7 +3,6 @@ import { cloneDefaults, PLATFORMS } from "./config";
 import { EMPTY_PROFILE, resolveDefaults } from "./profile";
 export function runPricingAudit() {
   const rates = cloneDefaults();
-  rates.mercadolivre.shippingColumns = rates.mercadolivre.shippingColumns?.map(c => c.min === 79 ? { ...c, adjustment: 0.6 } : c);
   const base = { ...EMPTY_INPUT, cost: 50, weight: 0.8, adType: "classic" as const };
   const a = calculatePrice("mercadolivre",89.99,base,rates);
   const b = calculatePrice("mercadolivre",89.99,{...base,tax:7,packaging:1.5},rates);
