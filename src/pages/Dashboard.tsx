@@ -14,7 +14,7 @@ import {
 
 const cards = [
   {
-    title: "Calculadora de Precificação",
+    title: "Lucro Certo",
     description: "Calcule lucros e margens para seus produtos",
     icon: Calculator,
     url: "/precificacao",

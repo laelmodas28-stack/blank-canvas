@@ -26,7 +26,7 @@ const estrategiaItems = [
 ];
 
 const precificacaoItems = [
-  { title: "Calculadora de Lucro", url: "/precificacao", icon: Calculator },
+  { title: "Lucro Certo", url: "/precificacao", icon: Calculator },
   { title: "Preço Ideal", url: "/simulador-preco", icon: TrendingUp },
 ];
 
@@ -119,7 +119,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-sidebar-foreground">SellSmart</h2>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">PrecificaPro</h2>
             <p className="text-xs text-muted-foreground">Inteligência de Vendas</p>
           </div>
         )}
