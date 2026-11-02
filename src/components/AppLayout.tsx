@@ -87,7 +87,7 @@ export function AppLayout() {
               <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
                 <BarChart3 className="h-4 w-4 text-primary-foreground" />
               </div>
-              <span className="text-sm font-semibold">SellSmart</span>
+              <span className="text-sm font-semibold">PrecificaPro</span>
             </div>
           </div>
         </header>

@@ -120,7 +120,7 @@ export function nextTierScenario(platform: Platform, currentPrice: number, input
 }
 export function thresholdAlerts(platform: Platform, price: number, input: PricingInput, config: RateConfig) {
   const rates = upgradeRates(config);
-  return priceBoundaries(platform,input,rates).filter(p => p > 0 && (platform === "mercadolivre" ? Math.abs(price-p) <= 11 : (platform === "shopee" || platform === "tiktok") && Math.abs(price-p) <= 5)).map(p => {
+  return priceBoundaries(platform,input,rates).filter(p => p > 0 && Math.abs(price-p) <= 5).map(p => {
     const before = calculatePrice(platform, p - 0.01, { ...input, discount: 0 }, rates), after = calculatePrice(platform, p, { ...input, discount: 0 }, rates);
     return { threshold: p, beforeFee: before.fixed, afterFee: after.fixed, beforeShipping: before.freight + before.variable, afterShipping: after.freight + after.variable,
       profitLoss: roundMoney(before.profit - after.profit), suggestedPrice: p - 0.01, missingShipping: before.missingShipping || after.missingShipping, estimated: before.estimated || after.estimated };
