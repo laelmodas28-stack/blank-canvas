@@ -77,11 +77,12 @@ export interface RateConfig {
   recommendedAdsPercent: number;
 }
 export const DEFAULT_RATES: RateConfig = {
-  version: "2026-10-30", updatedAt: "2026-10-30T00:00:00Z",
+  version: "2026-11-02", updatedAt: "2026-11-02T00:00:00Z",
   shopee: { tiers: [{ min: 0, max: 79.99, commission: 20, fixed: 4.5 }, { min: 80, max: 99.99, commission: 14, fixed: 16 }, { min: 100, max: 199.99, commission: 14, fixed: 20 }, { min: 200, max: null, commission: 14, fixed: 26 }], lowPriceThreshold: 9, lowPriceFixedPercent: 50, cpfExtra: 3, cpfOrderThreshold: 450, campaign: 2.5, advanceReduction: 0, freight: 0 },
   mercadolivre: { tiers: [
     { min: 0, max: 18.99, commission: 14, fixed: 0, shipping: null, shippingKind: "unit", payer: "buyer", note: "Comprador paga o frete; vendedor paga envio por unidade." },
-    { min: 19, max: 78.99, commission: 14, fixed: 0, shipping: null, shippingKind: "unit", payer: "platform", note: "Frete grátis ao comprador oferecido pelo Mercado Livre; informe o custo por unidade do anúncio." },
+    { min: 19, max: 48.99, commission: 14, fixed: 0, shipping: null, shippingKind: "unit", payer: "platform", note: "Frete grátis ao comprador oferecido pelo Mercado Livre; custo por unidade da coluna B da tabela (R$19 a R$48,99)." },
+    { min: 49, max: 78.99, commission: 14, fixed: 0, shipping: null, shippingKind: "unit", payer: "platform", note: "Frete grátis ao comprador oferecido pelo Mercado Livre; custo por unidade da coluna C da tabela (R$49 a R$78,99)." },
     { min: 79, max: null, commission: 14, fixed: 0, shipping: null, shippingKind: "freight", payer: "seller", note: "Frete Mercado Envios por sua conta; confirme no Simulador de custos." },
   ], flexTiers: [
     { min: 0, max: 28.99, commission: 0, fixed: 0, shipping: 6.25, shippingKind: "unit", payer: "seller", note: "Flex: referência de custo por unidade; confirme no anúncio." },
@@ -100,6 +101,7 @@ export function upgradeRates(rates: RateConfig): RateConfig {
   const defaults = structuredClone(DEFAULT_RATES);
   return { ...defaults, ...rates,
     mercadolivre: { ...defaults.mercadolivre, ...rates.mercadolivre,
+      tiers: (rates.version ?? "") < "2026-11-02" && rates.mercadolivre.tiers?.some(t => t.min === 19 && t.max === 78.99) ? defaults.mercadolivre.tiers : (rates.mercadolivre.tiers ?? defaults.mercadolivre.tiers),
       shippingColumns: rates.mercadolivre.shippingColumns ?? defaults.mercadolivre.shippingColumns,
       weightFees: (rates.version ?? "") < "2026-10-30" && (rates.mercadolivre.weightFees?.length ?? 0) <= 4 ? defaults.mercadolivre.weightFees : rates.mercadolivre.weightFees },
     magalu: { ...defaults.magalu, ...rates.magalu, tiers: rates.magalu.tiers ?? defaults.magalu.tiers.map(t => ({ ...t, commission: rates.magalu.commission, fixed: rates.magalu.fixed })) },
