@@ -136,3 +136,4 @@ export default function Precificacao({ idealMode = false }: { idealMode?: boolea
     </div>
   </div>;
 }
+
