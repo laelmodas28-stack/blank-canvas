@@ -3,17 +3,11 @@ import { AppLayout } from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Precificacao from "./pages/Precificacao";
 import SimuladorPreco from "./pages/SimuladorPreco";
-import RadarProdutos from "./pages/RadarProdutos";
 import GeradorImagens from "./pages/GeradorImagens";
-import AnaliseMercado from "./pages/AnaliseMercado";
-import ProdutosVencedores from "./pages/ProdutosVencedores";
-import CacadorProdutos from "./pages/CacadorProdutos";
 import CriarAnuncio from "./pages/CriarAnuncio";
 import Historico from "./pages/Historico";
 import Configuracoes from "./pages/Configuracoes";
 import Preferencias from "./pages/Preferencias";
-import CentralEstrategia from "./pages/CentralEstrategia";
-import CentralFinanceira from "./pages/CentralFinanceira";
 import Taxas from "./pages/Taxas";
 
 function App() {

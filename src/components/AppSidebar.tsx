@@ -2,18 +2,13 @@ import {
   LayoutDashboard,
   Calculator,
   TrendingUp,
-  Radar,
   BarChart3,
   Sparkles,
   History,
   User,
   SlidersHorizontal,
   ChevronDown,
-  Trophy,
-  Search,
   ImagePlus,
-  Brain,
-  Wallet,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
