@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Calculator, SlidersHorizontal, Save, CheckCircle2, AlertTriangle, TrendingUp } from "lucide-react";
+import { Calculator, SlidersHorizontal, Save, CheckCircle2, AlertTriangle, TrendingUp, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PLATFORMS, PLATFORM_NAMES, type Platform } from "@/features/pricing/lib/config";
 import { calculatePrice, solvePrice, nextTierScenario, thresholdAlerts, type PricingInput, type PriceResult } from "@/features/pricing/lib/engine";
@@ -93,7 +93,7 @@ export default function Precificacao({ idealMode = false }: { idealMode?: boolea
   const valid = input.tax <= 100 && marginUsed < 100;
   return <div className={`max-w-[1500px] mx-auto min-w-0 platform-${platform}`}>
     {auditFailures.length > 0 && <div role="alert" className="mb-4 border border-destructive text-destructive rounded p-3 text-sm">Auditoria de cálculo falhou: {auditFailures.map(c => c.id).join(", ")}. Revise os resultados antes de decidir.</div>}
-    <header className="flex flex-wrap items-center justify-between gap-4 mb-6"><div className="flex items-center gap-3 min-w-0"><div className="platform-header rounded-lg p-3 shrink-0"><Calculator className="h-5 w-5" /></div><div><h1 className="text-xl sm:text-2xl font-bold">{idealMode ? "Preço Ideal" : "Lucro Certo"}</h1><p className="text-xs text-muted-foreground mt-1">Taxas atualizadas em {rates.version.split("T")[0]}</p></div></div><Button asChild variant="outline"><Link to="/taxas"><SlidersHorizontal className="h-4 w-4" />Taxas</Link></Button></header>
+    <header className="flex flex-wrap items-center justify-between gap-4 mb-6"><div className="flex items-center gap-3 min-w-0"><div className="platform-header rounded-lg p-3 shrink-0"><Calculator className="h-5 w-5" /></div><div><h1 className="text-xl sm:text-2xl font-bold">{idealMode ? "Preço Ideal" : "Lucro Certo"}</h1><p className="text-xs text-muted-foreground mt-1">Taxas atualizadas em {rates.version.split("T")[0]}</p></div></div><div className="flex items-center gap-2">{product.trim() && <Button asChild variant="outline"><Link to={`/criar-anuncio?produto=${encodeURIComponent(product.trim())}&plataforma=${encodeURIComponent(PLATFORM_NAMES[platform])}`}><Sparkles className="h-4 w-4" />Criar anúncio com este produto</Link></Button>}<Button asChild variant="outline"><Link to="/taxas"><SlidersHorizontal className="h-4 w-4" />Taxas</Link></Button></div></header>
     <div className="mb-6"><Segmented value={view} onChange={setView} options={[{ value: "individual", label: "Calculadora individual" }, { value: "compare", label: "Comparar plataformas" }, { value: "real", label: "Conferir venda real" }]} /></div>
     <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
       <aside className="min-w-0 space-y-5">

@@ -1,5 +1,6 @@
 import { Sparkles, Copy, Check, Wand2, Tag, FileText, Hash, Loader2, ShoppingBag, Award } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -28,7 +29,9 @@ const STYLES = [
 ];
 
 export default function CriarAnuncio() {
-  const [productName, setProductName] = useState("");
+  const [searchParams] = useSearchParams();
+  const prefilledPlatform = searchParams.get("plataforma") ?? "";
+  const [productName, setProductName] = useState(searchParams.get("produto") ?? "");
   const [category, setCategory] = useState("");
   const [differentials, setDifferentials] = useState("");
   const [style, setStyle] = useState("persuasivo");
