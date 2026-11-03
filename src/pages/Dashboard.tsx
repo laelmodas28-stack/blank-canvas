@@ -43,7 +43,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { rates, saved } = usePricingStore();
   const recent = saved.slice(0, 5);
-  const ratesDate = (rates.updatedAt ?? rates.version).split("T")[0].replace(/^2026-/, "");
+  const ratesDate = (rates.updatedAt ?? rates.version).split("T")[0].replace(/^2026-2026-/, "2026-");
 
   return (
     <div className="max-w-5xl mx-auto">
