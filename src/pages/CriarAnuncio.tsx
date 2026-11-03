@@ -130,6 +130,15 @@ export default function CriarAnuncio() {
               />
             </div>
 
+            {prefilledPlatform && (
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">Plataforma</label>
+                <p className="px-4 py-3 rounded-lg border border-border bg-muted text-sm text-foreground">
+                  {prefilledPlatform}
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="text-sm text-muted-foreground block mb-1">Categoria</label>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass}>
