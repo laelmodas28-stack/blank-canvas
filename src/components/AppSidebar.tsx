@@ -137,12 +137,12 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
           activeClassName="bg-primary/10 text-primary font-medium"
         >
           <LayoutDashboard className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Dashboard</span>}
+          {!collapsed && <span>Início</span>}
         </NavLink>
 
-        <MenuGroup label="Estratégia" items={estrategiaItems} collapsed={collapsed} currentPath={currentPath} />
+        {/* Módulos de Estratégia e Inteligência de Mercado ficam ocultos do menu por enquanto;
+            o código e as rotas continuam no projeto para reativar depois. */}
         <MenuGroup label="Precificação" items={precificacaoItems} collapsed={collapsed} currentPath={currentPath} />
-        <MenuGroup label="Inteligência de Mercado" items={inteligenciaItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Anúncios" items={anunciosItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Histórico" items={historicoItems} collapsed={collapsed} currentPath={currentPath} />
         <MenuGroup label="Configurações" items={configItems} collapsed={collapsed} currentPath={currentPath} />
