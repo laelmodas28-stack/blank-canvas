@@ -5,3 +5,5 @@
 - Store profile defaults device-locally and resolve blank calculator fields through a pure defaults function with provenance; snapshots retain resolved defaults so later profile edits do not rewrite history.
 - Real-sale reconciliation uses pure comparison/adjustment functions and retains the original input and rate snapshot when reopening references, preventing later settings from rewriting historical comparisons.- Strategy and Market Intelligence modules are hidden, not deleted: their sidebar groups stay in code and their routes redirect to /dashboard, so they can be re-enabled later without data loss.
 - Lucro Certo links to Criar Anúncio via /criar-anuncio?produto=&plataforma= query params, which prefill the listing form; keep this contract when renaming either side.
+- Dashboard quick pricing calls the existing engine and profile resolver; navigation passes only typed cost/price via router state so full pricing retains defaults and snapshot precedence.
+- Dashboard indicators aggregate original saved results; rate-status metadata is optional and device-local, separate from fee formulas and estimate provenance.

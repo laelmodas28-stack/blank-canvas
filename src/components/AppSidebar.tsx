@@ -19,6 +19,7 @@ import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const estrategiaItems = [
   { title: "Central de Estratégia", url: "/estrategia", icon: Brain },
@@ -60,25 +61,16 @@ interface MenuGroupProps {
 }
 
 function MenuGroup({ label, items, collapsed, currentPath }: MenuGroupProps) {
-  const [open, setOpen] = useState(true);
-
   return (
     <div className="mb-1">
-      {!collapsed && (
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <span>{label}</span>
-          <ChevronDown className={cn("h-3 w-3 transition-transform", !open && "-rotate-90")} />
-        </button>
-      )}
-      {(open || collapsed) && (
+      {!collapsed && label && <p className="px-3 pt-6 pb-2 text-[11px] font-medium uppercase text-muted-foreground">{label}</p>}
+      {(
         <div className="space-y-0.5">
           {items.map((item) => (
-            <NavLink
+            <Button asChild variant="ghost" key={item.title} className={cn("w-full h-auto justify-start p-0", collapsed && "justify-center")}><NavLink
               key={item.title}
               to={item.url}
+               title={item.title}
               end
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
@@ -89,7 +81,7 @@ function MenuGroup({ label, items, collapsed, currentPath }: MenuGroupProps) {
             >
               <item.icon className="h-4 w-4 shrink-0" />
               {!collapsed && <span>{item.title}</span>}
-            </NavLink>
+            </NavLink></Button>
           ))}
         </div>
       )}
@@ -142,10 +134,8 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
 
         {/* Módulos de Estratégia e Inteligência de Mercado ficam ocultos do menu por enquanto;
             o código e as rotas continuam no projeto para reativar depois. */}
-        <MenuGroup label="Precificação" items={precificacaoItems} collapsed={collapsed} currentPath={currentPath} />
-        <MenuGroup label="Anúncios" items={anunciosItems} collapsed={collapsed} currentPath={currentPath} />
-        <MenuGroup label="Histórico" items={historicoItems} collapsed={collapsed} currentPath={currentPath} />
-        <MenuGroup label="Configurações" items={configItems} collapsed={collapsed} currentPath={currentPath} />
+        <MenuGroup label="" items={[precificacaoItems[0], ...anunciosItems, ...historicoItems]} collapsed={collapsed} currentPath={currentPath} />
+        <MenuGroup label="Conta" items={configItems} collapsed={collapsed} currentPath={currentPath} />
       </nav>
 
       <div className="p-3 border-t border-sidebar-border">

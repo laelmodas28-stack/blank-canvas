@@ -10,10 +10,10 @@ import { toast } from "sonner";
 export default function Configuracoes() {
   const { profile } = usePricingStore();
   const [draft, setDraft] = useState<StoreProfile>(() => ({ ...profile }));
-  const [texts, setTexts] = useState(() => ({ tax: String(profile.tax ?? ""), packaging: String(profile.packaging ?? ""), ads: String(profile.ads ?? ""), margin: String(profile.margin ?? "") }));
-  const change = (key: "tax" | "packaging" | "ads" | "margin", value: string) => { setTexts(old => ({ ...old,[key]:value })); setDraft(old => ({ ...old,[key]:parseDecimal(value) })); };
+  const [texts, setTexts] = useState(() => ({ tax: String(profile.tax ?? ""), packaging: String(profile.packaging ?? ""), ads: String(profile.ads ?? ""), margin: String(profile.margin ?? ""), lowMarginThreshold: String(profile.lowMarginThreshold ?? 10) }));
+  const change = (key: "tax" | "packaging" | "ads" | "margin" | "lowMarginThreshold", value: string) => { setTexts(old => ({ ...old,[key]:value })); setDraft(old => ({ ...old,[key]:parseDecimal(value) })); };
   const save = () => {
-    if ((draft.tax ?? 0)>100 || (draft.ads ?? 0)>100 || (draft.margin ?? 30)>=100) { toast.error("Imposto e Ads até 100%; margem menor que 100%."); return; }
+    if ((draft.tax ?? 0)>100 || (draft.ads ?? 0)>100 || (draft.margin ?? 30)>=100 || (draft.lowMarginThreshold ?? 10)>100) { toast.error("Imposto, Ads e limite de alerta até 100%; margem menor que 100%."); return; }
     try { saveProfile(draft); toast.success("Perfil da loja salvo neste dispositivo."); } catch { toast.error("Não foi possível salvar o Perfil da loja."); }
   };
 
@@ -55,6 +55,7 @@ export default function Configuracoes() {
             <NumberField label="Embalagem e etiqueta padrão (R$)" value={texts.packaging} onChange={v => change("packaging",v)} placeholder="0,00" />
             <NumberField label="Ads padrão (%)" value={texts.ads} onChange={v => change("ads",v)} placeholder="0,00" max={100} />
             <NumberField label="Margem alvo padrão (%)" value={texts.margin} onChange={v => change("margin",v)} placeholder="30,00" max={99} />
+            <NumberField label="Alerta de margem baixa (%)" value={texts.lowMarginThreshold} onChange={v => change("lowMarginThreshold",v)} placeholder="10,00" max={100} />
             <label className="text-xs font-medium text-muted-foreground">Classe de peso padrão<select aria-label="Classe de peso padrão" value={draft.weight ?? ""} onChange={e => setDraft(old => ({ ...old,weight:parseDecimal(e.target.value) }))} className={`${inputClass} mt-1.5`}><option value="">0,5 a 1 kg (padrão)</option>{[[0.3,"Até 0,3 kg"],[0.5,"0,3 a 0,5 kg"],[1,"0,5 a 1 kg"],[1.5,"1 a 1,5 kg"],[2,"1,5 a 2 kg"],[3,"2 a 3 kg"],[5,"4 a 5 kg"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="text-xs font-medium text-muted-foreground">Reputação do Mercado Livre<select aria-label="Reputação do Mercado Livre" value={draft.reputation ?? ""} onChange={e => setDraft(old => ({ ...old,reputation:e.target.value || undefined }))} className={`${inputClass} mt-1.5`}><option value="">Não definida</option>{["Verde","Amarela","Laranja","Vermelha"].map(v => <option key={v}>{v}</option>)}</select></label>
           </div>
