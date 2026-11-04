@@ -69,6 +69,7 @@ export const REFERENCE_WEIGHT_FEES: WeightFee[] = [
 export const ML_LOW_COLUMN_CAP_PERCENT = 50;
 export interface RateConfig {
   version: string; updatedAt: string;
+  status?: Partial<Record<Platform, { label: string; date: string }>>;
   shopee: { tiers: Tier[]; lowPriceThreshold: number; lowPriceFixedPercent: number; cpfExtra: number; cpfOrderThreshold: number; campaign: number; advanceReduction: number; freight: number; };
   mercadolivre: { tiers: Tier[]; flexTiers: Tier[]; classic: number; premium: number; categories: Record<string, { classic: number | null; premium: number | null }>; reduced: number | null; reducedMin: number; reducedMax: number; variableMin: number; variableFee: number; weightFees: WeightFee[]; shippingColumns?: ShippingColumn[]; freight: number; advance: number; };
   tiktok: { tiers: Tier[]; shippingPercent: number; shippingCap: number; affiliate: number; freight: number; };

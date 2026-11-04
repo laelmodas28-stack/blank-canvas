@@ -17,11 +17,13 @@ import { EstimateBadge } from "@/features/pricing/components/EstimateBadge";
 import { runPricingAudit } from "@/features/pricing/lib/audit";
 import { ExplainPrice } from "@/features/pricing/components/ExplainPrice";
 import { CompactPlatformCard } from "@/features/pricing/components/CompactPlatformCard";
+import { formatRateDate } from "@/features/pricing/lib/dashboard";
 export function Metric({ label, value, positive = false }: { label: string; value: string; positive?: boolean }) { return <div className="border border-border rounded-lg p-4 min-w-0"><p className="text-xs text-muted-foreground mb-2">{label}</p><p className={`text-xl font-bold break-words ${positive ? "text-success" : "text-foreground"}`}>{value}</p></div>; }
 export default function Precificacao({ idealMode = false }: { idealMode?: boolean }) {
   const { rates: liveRates, saved, profile } = usePricingStore();
   const location = useLocation();
   const restored = (location.state as { savedPrice?: SavedPrice } | null)?.savedPrice;
+  const quickPrice = (location.state as { quickPrice?: { cost: string; price: string } } | null)?.quickPrice;
   const rates = restored?.rates ?? liveRates;
   const auditFailures = runPricingAudit().filter(check => !check.passed);
   const [platform, setPlatform] = useState<Platform>(restored?.platform ?? (PLATFORMS.includes(profile.defaultPlatform as Platform) ? profile.defaultPlatform as Platform : "shopee"));
@@ -29,12 +31,12 @@ export default function Precificacao({ idealMode = false }: { idealMode?: boolea
   const [product, setProduct] = useState(restored?.product ?? "");
   const [mode, setMode] = useState(idealMode ? "margin" : "price");
   const str = (n?: number) => n === undefined ? "" : String(n);
-  const [cost, setCost] = useState(str(restored?.input.cost));
+  const [cost, setCost] = useState(quickPrice?.cost ?? str(restored?.input.cost));
   const [tax, setTax] = useState(str(restored?.input.tax));
   const [packaging, setPackaging] = useState(str(restored?.input.packaging));
   const [ads, setAds] = useState(str(restored?.input.ads));
   const [adsMode, setAdsMode] = useState<"percent" | "fixed">(restored?.input.adsMode ?? "percent");
-  const [salePrice, setSalePrice] = useState(str(restored?.price));
+  const [salePrice, setSalePrice] = useState(quickPrice?.price ?? str(restored?.price));
   const [margin, setMargin] = useState("");
   const [freights, setFreights] = useState<Partial<Record<Platform, string>>>(restored ? { [restored.platform]: str(restored.input.freight) } : {});
   const [shippingTexts, setShippingTexts] = useState<Partial<Record<Platform, Record<string,string>>>>(restored ? { [restored.platform]: Object.fromEntries(Object.entries(restored.input.tierShipping ?? {}).map(([k,v]) => [k,str(v)])) } : {});
@@ -93,7 +95,7 @@ export default function Precificacao({ idealMode = false }: { idealMode?: boolea
   const valid = input.tax <= 100 && marginUsed < 100;
   return <div className={`max-w-[1500px] mx-auto min-w-0 platform-${platform}`}>
     {auditFailures.length > 0 && <div role="alert" className="mb-4 border border-destructive text-destructive rounded p-3 text-sm">Auditoria de cálculo falhou: {auditFailures.map(c => c.id).join(", ")}. Revise os resultados antes de decidir.</div>}
-    <header className="flex flex-wrap items-center justify-between gap-4 mb-6"><div className="flex items-center gap-3 min-w-0"><div className="platform-header rounded-lg p-3 shrink-0"><Calculator className="h-5 w-5" /></div><div><h1 className="text-xl sm:text-2xl font-bold">{idealMode ? "Preço Ideal" : "Lucro Certo"}</h1><p className="text-xs text-muted-foreground mt-1">Taxas atualizadas em {rates.version.split("T")[0]}</p></div></div><div className="flex items-center gap-2">{product.trim() && <Button asChild variant="outline"><Link to={`/criar-anuncio?produto=${encodeURIComponent(product.trim())}&plataforma=${encodeURIComponent(PLATFORM_NAMES[platform])}`}><Sparkles className="h-4 w-4" />Criar anúncio com este produto</Link></Button>}<Button asChild variant="outline"><Link to="/taxas"><SlidersHorizontal className="h-4 w-4" />Taxas</Link></Button></div></header>
+    <header className="flex flex-wrap items-center justify-between gap-4 mb-6"><div className="flex items-center gap-3 min-w-0"><div className="platform-header rounded-lg p-3 shrink-0"><Calculator className="h-5 w-5" /></div><div><h1 className="text-xl sm:text-2xl font-bold">{idealMode ? "Preço Ideal" : "Lucro Certo"}</h1><p className="text-xs text-muted-foreground mt-1">Taxas atualizadas em {formatRateDate(rates.updatedAt ?? rates.version)}</p></div></div><div className="flex items-center gap-2">{product.trim() && <Button asChild variant="outline"><Link to={`/criar-anuncio?produto=${encodeURIComponent(product.trim())}&plataforma=${encodeURIComponent(PLATFORM_NAMES[platform])}`}><Sparkles className="h-4 w-4" />Criar anúncio com este produto</Link></Button>}<Button asChild variant="outline"><Link to="/taxas"><SlidersHorizontal className="h-4 w-4" />Taxas</Link></Button></div></header>
     <div className="mb-6"><Segmented value={view} onChange={setView} options={[{ value: "individual", label: "Calculadora individual" }, { value: "compare", label: "Comparar plataformas" }, { value: "real", label: "Conferir venda real" }]} /></div>
     <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
       <aside className="min-w-0 space-y-5">

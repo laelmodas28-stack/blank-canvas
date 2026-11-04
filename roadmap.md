@@ -1,4 +1,7 @@
 # Atualização da precificação
+- [ ] Redesenhar painel, calculadora rápida compartilhada e navegação simples.
+- [ ] Indicadores salvos, limite no Perfil e status editável em Taxas.
+- [ ] Conferir casos de R$10/R$29,30, auditoria e fluxo desktop/mobile.
 - [x] Motor central de taxas editáveis e testes das regras de cinco plataformas.
 - [x] Calculadora individual, comparação, ROAS e projeções preservados.
 - [x] Tela Taxas, Preço Ideal e histórico com preço salvo por produto/plataforma/versão neste dispositivo.

@@ -28,7 +28,7 @@ export function AppLayout() {
   }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen flex w-full">
+    <div className={cn("min-h-screen flex w-full", location.pathname === "/dashboard" && "dashboard-theme")}>
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
         <AppSidebar

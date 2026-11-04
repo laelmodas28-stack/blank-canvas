@@ -3,7 +3,8 @@ import { Save, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cloneDefaults, PLATFORMS, PLATFORM_NAMES, type Platform, type RateConfig } from "@/features/pricing/lib/config";
 import { usePricingStore, saveRates } from "@/features/pricing/hooks/usePricingStore";
-import { NumberField, parseDecimal } from "@/features/pricing/components/Fields";
+import { NumberField, parseDecimal, inputClass } from "@/features/pricing/components/Fields";
+import { DEFAULT_RATE_STATUS, formatRateDate } from "@/features/pricing/lib/dashboard";
 import { TierEditor } from "@/features/pricing/components/TierEditor";
 import { toast } from "sonner";
 export default function Taxas() {
@@ -21,6 +22,7 @@ export default function Taxas() {
   };
   return <div className={`max-w-5xl mx-auto platform-${platform}`}><header className="mb-6"><h1 className="text-2xl font-bold">Taxas dos marketplaces</h1><p className="text-sm text-muted-foreground mt-2">Última atualização: {new Date(rates.updatedAt).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</p><p className="text-xs text-muted-foreground mt-2">Confira sempre na Central do Vendedor de cada plataforma. Configurações salvas neste dispositivo.</p></header><div className="flex flex-wrap gap-2 mb-6">{PLATFORMS.map(p => <Button key={p} variant="outline" aria-pressed={platform === p} onClick={() => setPlatform(p)} className={platform === p ? `platform-${p} platform-selected` : ""}>{PLATFORM_NAMES[p]}</Button>)}</div>
   <section className="space-y-5 border-t border-border pt-5"><h2 className="text-lg font-semibold">{PLATFORM_NAMES[platform]}</h2>
+  <div className="grid sm:grid-cols-2 gap-4"><label className="text-xs font-medium text-muted-foreground">Situação das taxas<input className={`${inputClass} mt-1.5`} value={draft.status?.[platform]?.label ?? DEFAULT_RATE_STATUS[platform]} onChange={e => setDraft(old => ({ ...old, status: { ...old.status, [platform]: { label: e.target.value, date: old.status?.[platform]?.date ?? old.updatedAt.slice(0,10) } } }))} /></label><label className="text-xs font-medium text-muted-foreground">Data de conferência<input type="date" className={`${inputClass} mt-1.5`} value={(draft.status?.[platform]?.date ?? draft.updatedAt).slice(0,10)} onChange={e => setDraft(old => ({ ...old, status: { ...old.status, [platform]: { label: old.status?.[platform]?.label ?? DEFAULT_RATE_STATUS[platform], date: e.target.value } } }))} /></label></div>
   <TierEditor tiers={draft[platform].tiers} onChange={tiers => update(platform, { tiers })} />
   {platform === "mercadolivre" && <section className="border-t border-border pt-5 space-y-3"><h3 className="text-sm font-semibold">Logística Flex · limites de referência a confirmar no anúncio</h3><TierEditor flex tiers={draft.mercadolivre.flexTiers} onChange={flexTiers => update("mercadolivre", { flexTiers })} /></section>}
   <div className="grid sm:grid-cols-2 gap-4">
