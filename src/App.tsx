@@ -21,7 +21,7 @@ function App() {
           <Route path="/estrategia" element={<Navigate to="/dashboard" replace />} />
           <Route path="/financeiro" element={<Navigate to="/dashboard" replace />} />
           <Route path="/precificacao" element={<Precificacao />} />
-          <Route path="/simulador-preco" element={<SimuladorPreco />} />
+          <Route path="/simulador-preco" element={<Navigate to="/precificacao" replace />} />
           <Route path="/radar-produtos" element={<Navigate to="/dashboard" replace />} />
           <Route path="/gerador-imagens" element={<GeradorImagens />} />
           <Route path="/analise-mercado" element={<Navigate to="/dashboard" replace />} />

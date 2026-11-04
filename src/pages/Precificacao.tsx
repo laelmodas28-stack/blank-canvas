@@ -17,11 +17,13 @@ import { EstimateBadge } from "@/features/pricing/components/EstimateBadge";
 import { runPricingAudit } from "@/features/pricing/lib/audit";
 import { ExplainPrice } from "@/features/pricing/components/ExplainPrice";
 import { CompactPlatformCard } from "@/features/pricing/components/CompactPlatformCard";
+import { formatRateDate } from "@/features/pricing/lib/dashboard";
 export function Metric({ label, value, positive = false }: { label: string; value: string; positive?: boolean }) { return <div className="border border-border rounded-lg p-4 min-w-0"><p className="text-xs text-muted-foreground mb-2">{label}</p><p className={`text-xl font-bold break-words ${positive ? "text-success" : "text-foreground"}`}>{value}</p></div>; }
 export default function Precificacao({ idealMode = false }: { idealMode?: boolean }) {
   const { rates: liveRates, saved, profile } = usePricingStore();
   const location = useLocation();
   const restored = (location.state as { savedPrice?: SavedPrice } | null)?.savedPrice;
+  const quickPrice = (location.state as { quickPrice?: { cost: string; price: string } } | null)?.quickPrice;
   const rates = restored?.rates ?? liveRates;
   const auditFailures = runPricingAudit().filter(check => !check.passed);
   const [platform, setPlatform] = useState<Platform>(restored?.platform ?? (PLATFORMS.includes(profile.defaultPlatform as Platform) ? profile.defaultPlatform as Platform : "shopee"));
@@ -29,12 +31,12 @@ export default function Precificacao({ idealMode = false }: { idealMode?: boolea
   const [product, setProduct] = useState(restored?.product ?? "");
   const [mode, setMode] = useState(idealMode ? "margin" : "price");
   const str = (n?: number) => n === undefined ? "" : String(n);
-  const [cost, setCost] = useState(str(restored?.input.cost));
+  const [cost, setCost] = useState(quickPrice?.cost ?? str(restored?.input.cost));
   const [tax, setTax] = useState(str(restored?.input.tax));
   const [packaging, setPackaging] = useState(str(restored?.input.packaging));
   const [ads, setAds] = useState(str(restored?.input.ads));
   const [adsMode, setAdsMode] = useState<"percent" | "fixed">(restored?.input.adsMode ?? "percent");
-  const [salePrice, setSalePrice] = useState(str(restored?.price));
+  const [salePrice, setSalePrice] = useState(quickPrice?.price ?? str(restored?.price));
   const [margin, setMargin] = useState("");
   const [freights, setFreights] = useState<Partial<Record<Platform, string>>>(restored ? { [restored.platform]: str(restored.input.freight) } : {});
   const [shippingTexts, setShippingTexts] = useState<Partial<Record<Platform, Record<string,string>>>>(restored ? { [restored.platform]: Object.fromEntries(Object.entries(restored.input.tierShipping ?? {}).map(([k,v]) => [k,str(v)])) } : {});

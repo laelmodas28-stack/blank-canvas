@@ -1,7 +1,7 @@
 import { type PricingInput } from "./engine";
 export type CostOrigin = "automatic" | "profile" | "informed" | "estimated" | "real";
 export const ORIGIN_LABELS: Record<CostOrigin, string> = { automatic: "automático", profile: "do Perfil", informed: "informado", estimated: "estimado", real: "venda real" };
-export interface StoreProfile { name: string; email: string; defaultPlatform: string; tax?: number; packaging?: number; ads?: number; margin?: number; weight?: number; reputation?: string; }
+export interface StoreProfile { name: string; email: string; defaultPlatform: string; tax?: number; packaging?: number; ads?: number; margin?: number; weight?: number; reputation?: string; lowMarginThreshold?: number; }
 export const EMPTY_PROFILE: StoreProfile = { name: "", email: "", defaultPlatform: "shopee" };
 export function resolveDefaults(input: PricingInput, profile: StoreProfile, blank: { tax: boolean; packaging: boolean; ads: boolean }): PricingInput {
   const origins = { ...input.origins };
