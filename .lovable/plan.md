@@ -1,101 +1,60 @@
-# Central de Inteligência Financeira Marketplace
+# Criador de Anúncio Inteligente — versão alpha
 
-Novo módulo completo de fechamento financeiro + BI + IA estratégica para vendedores Shopee/Mercado Livre. Vai funcionar como um "CFO Digital" — responde quanto vendeu, quanto realmente ganhou, onde perde dinheiro e o que fazer para crescer.
+## O que será entregue
+Um novo espaço de trabalho para anúncios de moda na Shopee, Mercado Livre, TikTok Shop e SHEIN, mantendo a identidade do PrecificaPro e todas as funcionalidades atuais.
 
-Interface 100% PT-BR, código em inglês, sem emojis, padrão SaaS branco atual do app.
+### 1. Produto e fotos de referência
+- Enviar uma ou mais fotos, incluindo referências reais de cada cor/variação.
+- Preencher nome, tecido, composição, tamanhos, medidas, cores, modelagem, diferenciais, benefícios e informações adicionais.
+- Analisar características visíveis nas fotos, apresentar sugestões para revisão e permitir correções antes de gerar o anúncio.
+- Separar informações observadas, informadas e ainda não confirmadas. Não deduzir composição ou inventar detalhes técnicos.
 
-## Escopo desta entrega (Fase 1 — módulo funcional ponta-a-ponta)
+### 2. Marketplace e texto
+- Selecionar marketplace e gerar título principal, até três alternativas, palavra-chave principal, secundárias e sugestões de busca, sem prometer popularidade não comprovada.
+- Criar descrição comercial com características, informações técnicas, benefícios, respostas a objeções e combinações de looks fundamentadas nas referências e nos dados fornecidos.
+- Permitir edição e cópia, contar caracteres e impedir aprovação de conteúdo acima do limite configurado.
+- Disponibilizar configurações atualizáveis por marketplace, com origem/data de verificação. Limites sem confirmação serão identificados como provisórios, nunca apresentados como oficiais.
 
-Como o pedido é muito grande (14 seções), entrego uma versão completa e usável de todas as áreas, deixando ganchos para expansão. Não vou criar 14 telas separadas — vou criar 1 módulo com sub-abas navegáveis, reaproveitando o padrão da Central de Estratégia.
+### 3. Fotos comerciais
+- Escolher Studio profissional ou Studio moderno e gerar 6, 7 ou 8 arquivos independentes de **1200 × 1200 pixels**, por variação.
+- Organizar a sequência: principal, ângulo adicional, acabamento, caimento, look, medidas e, conforme a quantidade, estilo de vida e benefícios.
+- Usar edição com referência obrigatória, preservando a roupa e sua cor real. Um ângulo traseiro exige foto traseira; sem ela, usar outro enquadramento comprovável.
+- A tabela de medidas utilizará exclusivamente medidas fornecidas. Sem essas medidas, substituir a foto da tabela por outro enquadramento permitido, sem criar números.
+- Mostrar progresso por imagem, preservar resultados concluídos e permitir regenerar somente a imagem escolhida.
+- Permitir inspeção/ampliação e aprovação humana: fidelidade absoluta não pode ser garantida apenas pela IA.
 
-### Nova rota `/financeiro` com sub-abas
+### 4. Resultados e biblioteca
+- Abas **Fotos**, **Título e SEO** e **Descrição**, com edição dos textos e controles acessíveis no celular.
+- Abrir imagens, baixar individualmente em PNG/JPG e baixar todas em ZIP.
+- Salvar produto, marketplace, variações, referências, imagens, textos e data de criação.
+- Reabrir, editar, duplicar e excluir anúncios; duplicar reutiliza os arquivos existentes e não dispara nova geração paga.
 
-1. **Visão Geral** — cards de faturamento bruto, receita líquida, lucro líquido, margem média, ticket médio, pedidos, ROAS médio, CMV, investimento Ads. Filtros: Diário / Semanal / Quinzenal / Mensal / Personalizado. Gráficos comparativos (período atual vs anterior).
-2. **Vendas** — lançamento manual e importação de relatórios (CSV/XLSX). Cada venda calcula automaticamente: bruto, taxas, comissão, ads, frete, desconto, imposto, receita líquida, % descontado, lucro líquido.
-3. **Produtos & Custos** — cadastro de SKU (nome, categoria, SKU, custo fabricação, embalagem, operacional, fornecedor, preço venda, margem desejada). Sistema calcula lucro bruto, margem %, lucro líquido pós-marketplace.
-4. **Taxas Shopee 2026** — tabela editável com regras atuais (faixas de preço, comissão %, tarifa fixa por item, Campanha Destaque +3,5%, Ads Fácil +1,5%). Ativar/desativar, criar novas taxas, histórico.
-5. **Frete & Incentivos** — cálculo do Programa Frete Grátis com split vendedor/plataforma por faixa de preço.
-6. **Ads** — lançamento de campanhas com investimento, venda gerada, pedidos, produto. Calcula ROAS, TACOS, CPA, lucro pós-Ads. Classifica campanha (saudável / reduzindo margem / prejuízo).
-7. **Ranking de Produtos** — mais vendidos, maior faturamento, maior lucro, menor margem, com prejuízo. Semáforo Escalar / Ajustar / Pausar.
-8. **Análise Estratégica IA** — envia dados agregados ao `strategy-advisor` e retorna recomendações executivas (crescimento, produto que carrega lucro, sugestão de preço/Ads).
-9. **Alertas** — regras locais + IA: custo Ads subiu X%, margem abaixo da meta, faturamento cresceu mas lucro caiu, produto abaixo do break-even.
-10. **Configurações** — meta faturamento mensal, meta lucro, margem mínima, ROAS mínimo, % máximo de Ads.
+## Integração com o sistema atual
+- Adicionar **Criador de Anúncio Inteligente** ao menu principal em uma nova página, sem remover os criadores existentes.
+- Preservar `/criar-anuncio?produto=&plataforma=` e o vínculo com Lucro Certo. A nova página também aceitará esses preenchimentos.
+- Não alterar calculadora, taxas, indicadores, módulos financeiros ou seus dados.
+- O criador atual não possui biblioteca, e o gerador atual não salva fotos; esses recursos serão implementados no novo módulo, sem tratar o comportamento antigo como já suficiente.
 
-### Motor de taxas (fonte da verdade)
+## Acesso, custos e condições
+- Não foi encontrada uma tela de entrada nem proteção por usuário nos criadores atuais. Incluir entrada/cadastro necessários ao novo módulo, sem restringir as páginas existentes.
+- Manter anúncios e fotos privados por conta. Não reutilizar as permissões públicas das antigas tabelas financeiras.
+- A chave gerenciada `LOVABLE_API_KEY` está configurada. Verificar sua disponibilidade nas funções e a elegibilidade dos modelos antes de implementar chamadas reais; configuração existente não comprova saldo ou acesso a cada modelo.
+- Se faltar configuração ou houver restrição de modelo/créditos, mostrar o impedimento e a ação necessária, sem substituir modelos silenciosamente nem simular geração.
+- Fotos por IA consomem créditos. A geração começa somente por ação explícita; falhas ambíguas não provocarão repetição automática potencialmente cobrada.
 
-`src/features/finance/lib/feeEngine.ts` — implementa exatamente as regras Shopee 2026 do pedido:
+## Detalhes técnicos
+- Criar módulo isolado React/TypeScript com componentes existentes e cores semânticas; manter interface em português e código em inglês.
+- Usar Supabase existente para produtos, variações, anúncios, imagens, configurações de marketplace e histórico/fila de gerações. Tabelas com permissões explícitas e RLS vinculada ao usuário; configurações privadas versionadas por conta.
+- Guardar referências e resultados em bucket privado com acesso por URLs temporárias e validação de arquivo, tamanho e propriedade no servidor.
+- Executar análise, texto e edição de imagens em novas Edge Functions com validação de sessão e entrada. Usar `@lovable.dev/ai-gateway`, seus modelos elegíveis e contratos gerados; não modificar modelos nem chamadas dos criadores antigos.
+- Tratar cada imagem como tarefa persistida, processando uma por execução, com chave única de operação, lease exclusivo, conclusão gravada e controle de pausa em todas as entradas. Retomar somente pendências seguras; resultados de execução desconhecida exigem conferência antes de nova tentativa.
+- Usar dimensões nativas de 1200 × 1200 quando suportadas, ou exportação final validada nessas dimensões. Gerar tabela de medidas a partir dos dados, não por invenção de texto na imagem.
+- Registrar configurações/referências usadas em cada geração para alterações futuras não reescreverem o histórico.
 
-```text
-até R$79,99         → 20% + R$4/item
-R$80 – R$99,99      → 14% + R$16/item
-R$100 – R$199,99    → 14% + R$20/item
-acima R$200         → 14% + R$26/item
-+ Campanha Destaque (+3,5%) opcional
-+ Ads Fácil (+1,5%) opcional
-Frete Grátis:
-  até R$79,99   → cupom até R$20, vendedor 25%
-  R$80–R$199,99 → cupom até R$30, vendedor 25%
-  acima R$200   → cupom até R$40, vendedor 25%
-```
+## Verificação e aceite
+- Testar limites configuráveis e bloqueio de aprovação, quantidade de 6/7/8 imagens, dimensões finais, referências por variação e medidas exclusivamente fornecidas.
+- Testar isolamento entre contas, validação de uploads, deduplicação, pausa, retomada e regeneração individual sem repetir imagens concluídas.
+- Conferir com produto real: entrar, enviar foto, revisar análise, gerar texto/fotos, baixar individualmente/ZIP, salvar e reabrir pela biblioteca.
+- Conferir celular e desktop e executar os testes existentes de precificação para verificar ausência de regressões.
 
-Toda venda usa esse motor. Configuração fica em `finance_fee_rules` (JSON editável).
-
-### Persistência (novas tabelas)
-
-- `finance_products` — catálogo com custo, preço, margem desejada.
-- `finance_sales` — vendas (manuais e importadas) com todos os campos brutos + líquido calculado.
-- `finance_ads_campaigns` — campanhas Ads com métricas.
-- `finance_fee_rules` — regras de taxa versionadas (uma linha ativa por vez, histórico preservado).
-- `finance_settings` — metas e limites da empresa.
-- `finance_imports` — arquivos importados normalizados (tipo, linhas, resumo).
-
-Todas com GRANTs + RLS aberto para `anon,authenticated` (padrão atual do projeto até auth existir).
-
-### Importador universal
-
-Reaproveita `normalizeReport.ts` existente e estende para reconhecer colunas de relatório de vendas Shopee/ML (data, pedido, produto, SKU, qtd, valor, desconto, comissão, taxas, frete, ads, valor recebido). Suporta CSV, XLSX (SheetJS já instalado) e PDF (best-effort). Após importar, faz conciliação: cada linha vira registro em `finance_sales` já com cálculo aplicado.
-
-### Integração IA
-
-Novo modo `financial_advisor` na edge function `strategy-advisor`: recebe agregados (faturamento, lucro, top produtos, campanhas) e devolve recomendações estruturadas (Zod `Output.object`), reaproveitando o padrão atual.
-
-### Integração na navegação
-
-- Nova entrada "Financeiro" na sidebar, no grupo Gestão.
-- Card destacado no Dashboard.
-
-## Estrutura de arquivos
-
-```text
-src/pages/CentralFinanceira.tsx
-src/features/finance/
-  components/
-    FinanceOverview.tsx
-    SalesManager.tsx        (lançamento manual + importação + lista)
-    ProductsManager.tsx
-    FeeRulesEditor.tsx
-    ShippingIncentives.tsx
-    AdsManager.tsx
-    ProductRanking.tsx
-    StrategicAnalysis.tsx
-    FinanceAlerts.tsx
-    FinanceSettings.tsx
-  hooks/
-    useFinanceSales.ts
-    useFinanceProducts.ts
-    useFinanceSettings.ts
-  lib/
-    feeEngine.ts            (Shopee 2026 fees + freight)
-    salesNormalizer.ts      (CSV/XLSX de vendas → finance_sales)
-    aggregations.ts         (KPIs por período, comparativos, ranking)
-supabase/functions/strategy-advisor/index.ts   (adiciona modo financial_advisor)
-```
-
-## Fora desta fase (documentado)
-
-- Multiempresa/multiusuário real (depende de auth — hoje o projeto é single-tenant sem login).
-- Integração direta API oficial Shopee/ML (OAuth).
-- OCR real de PDFs de settlement.
-- Impostos por regime tributário (Simples/Lucro Presumido) — nesta fase entra como `%` configurável.
-
-Posso seguir com esta Fase 1 completa? Se preferir que eu comece por um pedaço específico (ex.: só Visão Geral + Vendas + Taxas, deixando Ads/Ranking/IA depois), me diz qual e eu foco só nele.
+**Fora da alpha:** publicação automática nos marketplaces e pesquisa de volume de buscas. A entrega gera arquivos e conteúdo prontos para revisão e uso, sem alegar integração de publicação ou dados de pesquisa que não existem.
