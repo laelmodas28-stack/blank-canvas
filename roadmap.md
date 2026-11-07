@@ -1,4 +1,11 @@
 # Atualização da precificação
+## Criador de Anúncio Inteligente
+- [ ] Aprovar o plano para a versão alpha de moda e vestuário.
+- [ ] Preparar acesso protegido, biblioteca e armazenamento privado de fotos.
+- [ ] Implementar análise revisável, regras por marketplace e textos editáveis.
+- [ ] Implementar geração de 6–8 fotos por variação, retomada segura e downloads individuais/ZIP.
+- [ ] Verificar fluxo real, privacidade, preservação da peça e uso no celular.
+
 - [x] Redesenhar painel, calculadora rápida compartilhada e navegação simples.
 - [x] Indicadores salvos, limite no Perfil e status editável em Taxas.
 - [x] Conferir casos de R$10/R$29,30, auditoria e fluxo desktop/mobile.
