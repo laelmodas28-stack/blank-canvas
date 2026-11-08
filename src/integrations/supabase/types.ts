@@ -297,6 +297,291 @@ export type Database = {
         }
         Relationships: []
       }
+      intelligent_listings: {
+        Row: {
+          content: Json
+          created_at: string
+          id: string
+          image_count: number
+          marketplace: string
+          product_id: string
+          rule_snapshot: Json
+          status: string
+          studio: string
+          updated_at: string
+          user_id: string
+          variation_id: string
+        }
+        Insert: {
+          content?: Json
+          created_at?: string
+          id?: string
+          image_count?: number
+          marketplace: string
+          product_id: string
+          rule_snapshot?: Json
+          status?: string
+          studio?: string
+          updated_at?: string
+          user_id?: string
+          variation_id: string
+        }
+        Update: {
+          content?: Json
+          created_at?: string
+          id?: string
+          image_count?: number
+          marketplace?: string
+          product_id?: string
+          rule_snapshot?: Json
+          status?: string
+          studio?: string
+          updated_at?: string
+          user_id?: string
+          variation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intelligent_listings_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "listing_products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intelligent_listings_variation_id_fkey"
+            columns: ["variation_id"]
+            isOneToOne: false
+            referencedRelation: "listing_variations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_generated_images: {
+        Row: {
+          approved: boolean
+          created_at: string
+          id: string
+          listing_id: string
+          path: string
+          position: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved?: boolean
+          created_at?: string
+          id?: string
+          listing_id: string
+          path: string
+          position: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved?: boolean
+          created_at?: string
+          id?: string
+          listing_id?: string
+          path?: string
+          position?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_generated_images_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "intelligent_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_generation_jobs: {
+        Row: {
+          created_at: string
+          id: string
+          lease_until: string | null
+          listing_id: string
+          operation: string
+          output: Json | null
+          pause_reason: string | null
+          position: number
+          revision: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lease_until?: string | null
+          listing_id: string
+          operation: string
+          output?: Json | null
+          pause_reason?: string | null
+          position?: number
+          revision: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lease_until?: string | null
+          listing_id?: string
+          operation?: string
+          output?: Json | null
+          pause_reason?: string | null
+          position?: number
+          revision?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_generation_jobs_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "intelligent_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_marketplace_rules: {
+        Row: {
+          created_at: string
+          description_limit: number
+          id: string
+          marketplace: string
+          rules: string
+          source: string
+          title_limit: number
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description_limit: number
+          id?: string
+          marketplace: string
+          rules?: string
+          source?: string
+          title_limit: number
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description_limit?: number
+          id?: string
+          marketplace?: string
+          rules?: string
+          source?: string
+          title_limit?: number
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
+      listing_products: {
+        Row: {
+          created_at: string
+          facts: Json
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          facts?: Json
+          id?: string
+          name: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          facts?: Json
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      listing_profiles: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          store_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string
+          id: string
+          store_name?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          store_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      listing_variations: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          product_id: string
+          reference_paths: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string
+          product_id: string
+          reference_paths?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          product_id?: string
+          reference_paths?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_variations_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "listing_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produtos_analisados: {
         Row: {
           avaliacao_media: number | null
@@ -550,7 +835,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_listing_job: {
+        Args: { job_id: string; owner_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
