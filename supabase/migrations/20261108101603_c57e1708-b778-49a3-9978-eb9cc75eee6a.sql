@@ -1,0 +1,3 @@
+CREATE POLICY listing_storage_read ON storage.objects FOR SELECT TO authenticated USING(bucket_id='intelligent-listings' AND (storage.foldername(name))[1]=auth.uid()::text);
+CREATE POLICY listing_storage_upload ON storage.objects FOR INSERT TO authenticated WITH CHECK(bucket_id='intelligent-listings' AND (storage.foldername(name))[1]=auth.uid()::text AND (storage.foldername(name))[2]='references' AND lower(storage.extension(name)) IN('png','jpg','jpeg','webp'));
+REVOKE UPDATE ON public.listing_generated_images FROM authenticated; GRANT UPDATE(approved) ON public.listing_generated_images TO authenticated;
